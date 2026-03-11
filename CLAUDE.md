@@ -9,7 +9,7 @@ Production-quality RAG chatbot over Stripe documentation. Crawls 4 Stripe doc se
 | Concern | Choice |
 |---|---|
 | Crawler | `httpx` + `BeautifulSoup4` + `markdownify` (Stripe docs are SSR'd — no JS needed, confirmed) |
-| Embeddings | `text-embedding-3-small` (1536-dim) |
+| Embeddings | `text-embedding-3-large` (3072-dim) |
 | Vector DB | Qdrant Cloud free tier |
 | Sparse retrieval | `fastembed` BM42 (`Qdrant/bm42-all-minilm-l6-v2-attentions`) |
 | Reranking | Cohere Rerank v3 with `NoOpReranker` fallback |
@@ -37,8 +37,13 @@ Production-quality RAG chatbot over Stripe documentation. Crawls 4 Stripe doc se
 # Full crawl
 .venv/Scripts/python scripts/run_crawl.py
 
-# Index (chunk → embed → index)
-.venv/Scripts/python scripts/run_index.py --stage all
+# Index — drops+recreates collection by default, then chunks → embeds → indexes
+.venv/Scripts/python scripts/run_index.py
+# Keep existing collection (upsert only):
+.venv/Scripts/python scripts/run_index.py --no-recreate
+
+# Phase 4/5 smoke test (collection health + retrieval)
+.venv/Scripts/python scripts/smoke_test.py
 
 # Run API
 .venv/Scripts/uvicorn stripe_rag.api.main:app --reload
@@ -52,14 +57,12 @@ Production-quality RAG chatbot over Stripe documentation. Crawls 4 Stripe doc se
 ```
 OPENAI_API_KEY=...
 LANGSMITH_API_KEY=...
-LANGSMITH_PROJECT=stripe-rag-chatbot      # fixed from rag-papers-eval
+LANGSMITH_PROJECT=stripe-rag-chatbot
 LANGSMITH_TRACING=true
-
-# Add for Phase 4+:
 QDRANT_URL=...
 QDRANT_API_KEY=...
 
-# Add for Phase 5+:
+# Add for Phase 5 Cohere reranking (optional — NoOpReranker used if absent):
 COHERE_API_KEY=...
 ```
 
@@ -68,6 +71,8 @@ COHERE_API_KEY=...
 ```
 stripe-rag-chatbot/
 ├── pyproject.toml
+├── Dockerfile
+├── fly.toml
 ├── CLAUDE.md                             # this file
 ├── .env                                  # secrets (gitignored)
 │
@@ -81,19 +86,21 @@ stripe-rag-chatbot/
 │   │   └── crawler.py                    # Async BFS crawler
 │   │
 │   ├── ingestion/
+│   │   ├── cleaner.py                    # clean_markdown() — applied before chunking
 │   │   ├── chunker.py                    # HeadingAwareChunker, Chunk dataclass
 │   │   ├── embedder.py                   # OpenAIEmbedder (dense), SparseEmbedder (BM42)
-│   │   ├── indexer.py                    # QdrantIndexer: create collection + upsert
-│   │   └── pipeline.py                   # Orchestrates crawl → chunk → embed → index
+│   │   ├── indexer.py                    # QdrantIndexer: create/drop collection + upsert
+│   │   └── pipeline.py                   # chunk_documents(), embed_and_index()
 │   │
 │   ├── retrieval/
 │   │   ├── models.py                     # RetrievedChunk dataclass
 │   │   ├── retriever.py                  # HybridRetriever (Qdrant prefetch + RRF)
-│   │   └── reranker.py                   # CohereReranker + NoOpReranker fallback
+│   │   └── reranker.py                   # CohereReranker + NoOpReranker + get_reranker()
 │   │
 │   ├── generation/
-│   │   ├── prompts.py                    # SYSTEM_PROMPT, format_context_blocks()
-│   │   └── generator.py                  # AnswerGenerator: generate(), generate_stream()
+│   │   ├── prompts.py                    # SYSTEM_PROMPT, format_context_blocks(), REFUSAL_PATTERNS
+│   │   └── generator.py                  # AnswerGenerator: generate(), generate_stream(),
+│   │                                     #   answer(), answer_stream(), check_guardrails()
 │   │
 │   ├── api/
 │   │   ├── main.py                       # FastAPI app factory, lifespan events
@@ -104,25 +111,26 @@ stripe-rag-chatbot/
 │   │       └── health.py                 # GET /health, GET /ready
 │   │
 │   └── evaluation/
-│       ├── eval_set.py                   # 25 hand-crafted Q&A pairs
-│       └── runner.py                     # run_evaluation(), logs to LangSmith
+│       ├── eval_set.py                   # 25 hand-crafted Q&A pairs (all 4 sections)
+│       └── runner.py                     # run_evaluation(), source_hit_rate, keyword_hit_rate
 │
 ├── scripts/
 │   ├── run_crawl.py                      # CLI: crawl → data/
-│   ├── run_index.py                      # CLI: data/ → Qdrant
+│   ├── run_index.py                      # CLI: data/ → Qdrant (default: drop+recreate)
+│   ├── smoke_test.py                     # Phase 4/5 health check + retrieval test
 │   └── run_eval.py                       # CLI: evaluation suite
 │
 ├── data/                                 # gitignored
 │   ├── raw_html/                         # {url_slug}.html
 │   ├── markdown/                         # {url_slug}.md
-│   ├── documents.jsonl                   # one page per line
-│   └── chunks.jsonl                      # one chunk per line (after Phase 3)
+│   ├── documents.jsonl                   # 1154 pages
+│   └── chunks.jsonl                      # 8377 chunks
 │
 └── tests/
     ├── conftest.py
-    ├── test_config.py                    # Phase 1 smoke tests
+    ├── test_config.py                    # Phase 1 smoke tests (2 tests)
     ├── test_crawler.py                   # Phase 2 unit tests (23 tests, respx mocks)
-    ├── test_chunker.py                   # Phase 3 (pending)
+    ├── test_chunker.py                   # Phase 3 unit tests (19 tests)
     ├── test_retrieval.py                 # Phase 5 (pending)
     └── test_api.py                       # Phase 7 (pending)
 ```
@@ -136,18 +144,18 @@ stripe-rag-chatbot/
 **Files:** `pyproject.toml`, `src/stripe_rag/__init__.py`, `src/stripe_rag/config.py`
 
 **Key `config.py` fields:**
-- OpenAI: `openai_api_key`, `openai_embedding_model="text-embedding-3-small"`, `llm_model="gpt-4o-mini"`, `llm_temperature=0.1`, `llm_max_tokens=1024`
+- OpenAI: `openai_api_key`, `openai_embedding_model="text-embedding-3-large"`, `llm_model="gpt-4o-mini"`, `llm_temperature=0.1`, `llm_max_tokens=1024`
 - Qdrant: `qdrant_url`, `qdrant_api_key`, `qdrant_collection_name="stripe_docs"`
 - Retrieval: `retrieval_dense_top_k=20`, `retrieval_sparse_top_k=20`, `retrieval_final_top_k=5`
 - Reranking: `cohere_api_key=None`, `cohere_rerank_top_n=5`
 - Crawler: `crawler_concurrency=10`, `crawler_delay_seconds=0.5`, `crawler_max_pages=2000`
 - LangSmith: `langsmith_api_key`, `langsmith_project="stripe-rag-chatbot"`, `langsmith_tracing=True`
+- Paths: resolved absolute from `__file__` — works regardless of CWD
 
 **Verified:**
 - `get_settings().llm_model` → `gpt-4o-mini` ✓
 - `ruff check src/` → clean ✓
-- `mypy src/` → clean ✓
-- `pytest tests/` → 2 passed ✓
+- `pytest tests/` → 44 passed ✓
 
 ---
 
@@ -162,79 +170,83 @@ stripe-rag-chatbot/
 - Skips pages with `word_count < 50`
 - Saves: `data/raw_html/{slug}.html`, `data/markdown/{slug}.md`, `data/documents.jsonl`
 
-**Confirmed findings:**
-- Stripe docs are fully SSR'd — `httpx` gets real content, no Playwright needed
-- `/api` section returns 1320 words of real content
+**Verified:**
+- 23 crawler unit tests pass ✓
+- Full crawl: 1154 pages → `data/documents.jsonl` ✓
+
+---
+
+### ✅ Phase 3 — Heading-Aware Chunking (COMPLETE)
+
+**Files:** `src/stripe_rag/ingestion/chunker.py`, `src/stripe_rag/ingestion/cleaner.py`, `src/stripe_rag/ingestion/pipeline.py`, `tests/test_chunker.py`
+
+**Key design:**
+- `clean_markdown()` applied before chunking (truncates large code blocks, strips UI noise)
+- `HeadingAwareChunker`: splits on h1–h4 boundaries, maintains heading stack
+- `heading_path` = `"Charges > Create a charge > Parameters"`, prepended to every chunk
+- `MAX_TOKENS=512`, `OVERLAP_TOKENS=64`, `MIN_CHUNK_TOKENS=50` — `tiktoken cl100k_base`
+- Recursive split: `\n\n` → `\n` → sentence → token windows
 
 **Verified:**
-- 25/25 unit tests pass (23 crawler + 2 config) ✓
-- `run_crawl.py --max-pages 10` → 10 pages in ~3.6s ✓
-- All 4 seed sections (payments, billing, connect, api) crawled ✓
+- 19 unit tests pass ✓
+- 1154 pages → 8377 chunks in `data/chunks.jsonl` ✓
 
 ---
 
-### 🔲 Phase 3 — Heading-Aware Chunking (PENDING)
+### ✅ Phase 4 — Embeddings & Qdrant Indexing (COMPLETE)
 
-**Files to create:** `src/stripe_rag/ingestion/chunker.py`, `tests/test_chunker.py`
-
-**Strategy:**
-- Split markdown on h1–h4 boundaries → `(heading_path, section_text)` pairs
-- Heading stack: level-N replaces everything at level ≥ N
-- `heading_path` = `"Charges > Create a charge > Parameters"`
-- `MAX_TOKENS=512`, `OVERLAP_TOKENS=64`, `MIN_CHUNK_TOKENS=50`
-- Recursive split: `\n\n` → `\n` → sentence → char
-- Prepend `heading_path` to each chunk content
-- Token counting: `tiktoken` `cl100k_base`
-
-**`Chunk` dataclass:** `chunk_id (uuid4)`, `source_url`, `page_title`, `section_prefix`, `heading_path`, `content`, `token_count`, `char_count`, `chunk_index`, `total_chunks`
-
----
-
-### 🔲 Phase 4 — Embeddings & Qdrant Indexing (PENDING)
-
-**Files to create:** `src/stripe_rag/ingestion/embedder.py`, `src/stripe_rag/ingestion/indexer.py`, `src/stripe_rag/ingestion/pipeline.py`, `scripts/run_index.py`
+**Files:** `src/stripe_rag/ingestion/embedder.py`, `src/stripe_rag/ingestion/indexer.py`, `scripts/run_index.py`
 
 **Key design:**
-- `OpenAIEmbedder`: `BATCH_SIZE=100`, async with `tqdm`, tenacity retry
-- `SparseEmbedder`: `fastembed` BM42
-- Qdrant collection: dense vector (1536-dim, Cosine) + sparse vector, HNSW (m=16, ef_construct=200)
+- `OpenAIEmbedder`: `BATCH_SIZE=100`, async, tenacity retry (3 attempts)
+- `SparseEmbedder`: `fastembed` BM42 (`Qdrant/bm42-all-minilm-l6-v2-attentions`)
+- `QdrantIndexer`: HNSW (m=16, ef_construct=200), 3072-dim Cosine dense + sparse vectors
 - Payload indexes: `section_prefix` (KEYWORD), `source_url` (KEYWORD)
-- `run_index.py --stage [chunk|embed|index|all]` with `--dry-run`
+- `drop_collection()` + `ensure_collection()` — run_index.py drops+recreates by default
+- Upsert retry: tenacity 5 attempts, exponential backoff (4–60s) — handles Qdrant Cloud timeouts
+- `run_index.py`: default drops+recreates collection; use `--no-recreate` to upsert into existing
 
-**Requires:** Add `QDRANT_URL` and `QDRANT_API_KEY` to `.env`
+**Verified:**
+- `scripts/smoke_test.py` → 8377 points, status green, Dense dim 3072, Distance Cosine ✓
+- Hybrid retrieval query returns 5 relevant chunks with RRF scores ✓
 
 ---
 
-### 🔲 Phase 5 — Hybrid Retrieval & Reranking (PENDING)
+### ✅ Phase 5 — Hybrid Retrieval & Reranking (COMPLETE)
 
-**Files to create:** `src/stripe_rag/retrieval/models.py`, `src/stripe_rag/retrieval/retriever.py`, `src/stripe_rag/retrieval/reranker.py`
+**Files:** `src/stripe_rag/retrieval/models.py`, `src/stripe_rag/retrieval/retriever.py`, `src/stripe_rag/retrieval/reranker.py`
 
 **Key design:**
-- `HybridRetriever.retrieve()`: parallel dense+sparse embed → Qdrant `QueryRequest` with two `Prefetch` branches + `FusionQuery(fusion=Fusion.RRF)` → `list[RetrievedChunk]`
+- `HybridRetriever.retrieve()`: embeds query dense+sparse → Qdrant prefetch with two branches + `FusionQuery(fusion=Fusion.RRF)` → `list[RetrievedChunk]`
 - Optional `Filter` on `section_prefix` for scoped queries
-- `CohereReranker` + `NoOpReranker` fallback (activated when `COHERE_API_KEY` not set)
-- Both decorated with `@traceable`
+- `CohereReranker` (rerank-english-v3.0) + `NoOpReranker` fallback — `get_reranker()` factory
+- Both retriever and rerankers decorated with `@traceable`
+- RRF scores are relative rank-based (0.25–0.5 range is normal and expected)
 
-**Requires:** Add `COHERE_API_KEY` to `.env`
+**Verified via smoke_test.py:**
+- Query "How do I create a PaymentIntent?" → 5 chunks, all `docs.stripe.com` URLs ✓
+- Top result: "Create a PaymentIntent | Stripe API Reference" ✓
+
+**Next:** Add `COHERE_API_KEY` to `.env` to enable Cohere reranking (currently using NoOpReranker)
 
 ---
 
 ### 🔲 Phase 6 — Answer Generation with Citations & Streaming (PENDING)
 
-**Files to create:** `src/stripe_rag/generation/prompts.py`, `src/stripe_rag/generation/generator.py`
+**Files:** `src/stripe_rag/generation/prompts.py`, `src/stripe_rag/generation/generator.py`
 
 **Key design:**
 - `SYSTEM_PROMPT`: answer only from context, cite as `[Source N]`, say "insufficient evidence" if weak
 - `format_context_blocks()`: `[Source N] {title} > {heading_path}\nURL: {url}\n{content}\n---`
-- `AnswerGenerator.generate()` (non-streaming) + `generate_stream()` (async iterator of tokens then sources SSE event)
-- `answer()`: full pipeline with `@traceable(name="rag_pipeline")`
-- Inline guardrails: regex check for prompt injection patterns
+- `AnswerGenerator.generate()` (non-streaming) + `generate_stream()` (async generator of SSE JSON)
+- `answer()` + `answer_stream()`: full pipeline with `@traceable(name="rag_pipeline")`
+- `check_guardrails()`: regex check for prompt injection patterns
 
 ---
 
 ### 🔲 Phase 7 — FastAPI Backend (PENDING)
 
-**Files to create:** `src/stripe_rag/api/main.py`, `schemas.py`, `middleware.py`, `routes/chat.py`, `routes/health.py`
+**Files:** `src/stripe_rag/api/main.py`, `schemas.py`, `middleware.py`, `routes/chat.py`, `routes/health.py`
 
 **Routes:**
 - `POST /chat` → `ChatResponse(answer, sources, latency_ms, model)`
@@ -248,7 +260,7 @@ stripe-rag-chatbot/
 
 ### 🔲 Phase 8 — Evaluation, Docker & fly.io Deployment (PENDING)
 
-**Files to create:** `src/stripe_rag/evaluation/eval_set.py`, `runner.py`, `scripts/run_eval.py`, `Dockerfile`, `fly.toml`
+**Files:** `src/stripe_rag/evaluation/eval_set.py`, `runner.py`, `scripts/run_eval.py`, `Dockerfile`, `fly.toml`
 
 **Targets:**
 - `source_hit_rate ≥ 0.80`, `keyword_hit_rate ≥ 0.75`
@@ -259,9 +271,14 @@ stripe-rag-chatbot/
 
 ## Key Design Decisions & Gotchas
 
-- **`pyproject.toml` build backend**: use `setuptools.build_meta`, NOT `setuptools.backends.legacy:build` (requires newer setuptools not available in this venv)
+- **`pyproject.toml` build backend**: use `setuptools.build_meta`, NOT `setuptools.backends.legacy:build`
 - **mypy + pydantic-settings**: `Settings()` call in `get_settings()` needs `# type: ignore[call-arg]`
-- **Stripe docs rendering**: fully SSR'd — confirmed with live smoke test, no Playwright needed
+- **Stripe docs rendering**: fully SSR'd — confirmed, no Playwright needed
 - **`data/` directory**: gitignored. Must run crawl before indexing
 - **Windows paths**: venv is at `.venv/Scripts/` (not `.venv/bin/`)
-- **LangSmith project**: was `rag-papers-eval` in `.env`, fixed to `stripe-rag-chatbot`
+- **config.py paths**: `.env` and `data_dir` resolved relative to `__file__` — works from any CWD/IDE
+- **Embedding model**: `text-embedding-3-large` (3072-dim) — changed from small for better quality
+- **run_index.py default**: drops+recreates Qdrant collection on every run to avoid stale duplicate points
+- **RRF scores**: values like 0.25–0.5 are normal — these are rank-based fusion scores, not cosine similarity
+- **Qdrant Cloud upsert timeouts**: fixed with tenacity retry (5 attempts, 4–60s backoff) on each batch
+- **ruff ignores**: `B008` (FastAPI Depends pattern), `E741` (legacy `l` variable in pre-existing files)

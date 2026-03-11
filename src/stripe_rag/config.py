@@ -6,10 +6,14 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolve paths relative to this file so they work regardless of CWD
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -17,7 +21,7 @@ class Settings(BaseSettings):
 
     # ── OpenAI ────────────────────────────────────────────────────────────────
     openai_api_key: str
-    openai_embedding_model: str = "text-embedding-3-small"
+    openai_embedding_model: str = "text-embedding-3-large"
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1024
@@ -55,7 +59,7 @@ class Settings(BaseSettings):
     langsmith_tracing: bool = True
 
     # ── Paths ─────────────────────────────────────────────────────────────────
-    data_dir: Path = Path("data")
+    data_dir: Path = Field(default=_PROJECT_ROOT / "data")
 
     @property
     def raw_html_dir(self) -> Path:
