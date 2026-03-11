@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stripe-rag-chatbot"
+version = "0.1.0"
+description = "RAG chatbot over Stripe documentation"
+requires-python = ">=3.13"
+dependencies = [
+    # Phase 1 — Core
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    # Phase 2 — Crawler
+    "httpx>=0.28",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.3",
+    "markdownify>=0.13",
+    "tenacity>=9.0",
+    # Phase 3 — Chunking
+    "tiktoken>=0.8",
+    # Phase 4 — Embeddings & Indexing
+    "openai>=1.59",
+    "qdrant-client>=1.12",
+    "fastembed>=0.4",
+    "tqdm>=4.67",
+    # Phase 5 — Reranking
+    "cohere>=5.13",
+    # Phase 6-7 — API
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    # Phase 8 — Observability
+    "langsmith>=0.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "respx>=0.21",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "httpx>=0.28",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = false
+ignore_missing_imports = true
+warn_return_any = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
