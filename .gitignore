@@ -136,6 +136,15 @@ cython_debug/
 # VS Code settings
 .vscode/
 
+.idea/<<<<<<< HEAD
 
 
 .idea/
+=======
+# Project-specific
+data/raw_html/
+data/markdown/
+data/documents.jsonl
+data/chunks.jsonl
+.idea/
+>>>>>>> f10460f464e0d3281a309bea00bdcd69b248a570
