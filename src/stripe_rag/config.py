@@ -22,11 +22,12 @@ class Settings(BaseSettings):
     # ── OpenAI ────────────────────────────────────────────────────────────────
     openai_api_key: str
     openai_embedding_model: str = "text-embedding-3-large"
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "gpt-4.1"
+    eval_llm_model: str = "gpt-5-mini"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1024
 
-    # ── Qdrant ────────────────────────────────────────────────────────────────
+    # ── Qdrant ────────────────────────────────────────────────────────────────config
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
     qdrant_collection_name: str = "stripe_docs"

@@ -231,7 +231,7 @@ stripe-rag-chatbot/
 
 ---
 
-### 🔲 Phase 6 — Answer Generation with Citations & Streaming (PENDING)
+### ✅ Phase 6 — Answer Generation with Citations & Streaming (COMPLETE)
 
 **Files:** `src/stripe_rag/generation/prompts.py`, `src/stripe_rag/generation/generator.py`
 
@@ -258,14 +258,28 @@ stripe-rag-chatbot/
 
 ---
 
-### 🔲 Phase 8 — Evaluation, Docker & fly.io Deployment (PENDING)
+### 🔧 Phase 8 — Evaluation, Docker & fly.io Deployment (IN PROGRESS)
 
 **Files:** `src/stripe_rag/evaluation/eval_set.py`, `runner.py`, `scripts/run_eval.py`, `Dockerfile`, `fly.toml`
 
-**Targets:**
-- `source_hit_rate ≥ 0.80`, `keyword_hit_rate ≥ 0.75`
+**Evaluation pipeline (COMPLETE):**
+- `eval_set.py`: 25 hand-crafted Q&A pairs across all 4 Stripe doc sections
+- `runner.py`: RAGAS LLM-as-judge metrics (faithfulness, response_relevancy, context_recall, factual_correctness)
+- `run_eval.py`: CLI — prints results table + LangSmith project URL
+- LangSmith visibility: per-question `eval_question` traces with RAGAS scores submitted as feedback
+- Trace structure: `run_evaluation` → `eval_question` ×25 → `rag_pipeline` → `hybrid_retrieve` → reranker
+
+**Key gotchas:**
+- LangSmith SDK reads from `os.environ`, not pydantic Settings — `run_eval.py` calls `os.environ.setdefault()` before `run_evaluation()` to bridge them; also sets `LANGCHAIN_*` vars for RAGAS's LangChain internals
+- RAGAS `evaluate()` calls `asyncio.run()` internally; calling it from inside an async function causes `nest_asyncio` to patch the loop, but the `RagasTracer` callback never fires → `parse_run_traces` crashes with `IndexError`. Fix: run `evaluate()` via `loop.run_in_executor(None, ...)` so it gets a fresh thread event loop
+- `_eval_single` is a closure (defined inside `run_evaluation`) so `generator` is captured without being a `@traceable` parameter (non-serializable objects can't be traceable params)
+
+**Remaining:**
 - Docker: `python:3.13-slim`, pre-download BM42 model, non-root `appuser`
 - fly.io: `memory=512mb`, `auto_stop_machines=true`, `min_machines_running=0`
+
+**Targets:**
+- `faithfulness ≥ 0.80`, `response_relevancy ≥ 0.75`, `context_recall ≥ 0.75`, `factual_correctness ≥ 0.75`
 
 ---
 
@@ -282,3 +296,6 @@ stripe-rag-chatbot/
 - **RRF scores**: values like 0.25–0.5 are normal — these are rank-based fusion scores, not cosine similarity
 - **Qdrant Cloud upsert timeouts**: fixed with tenacity retry (5 attempts, 4–60s backoff) on each batch
 - **ruff ignores**: `B008` (FastAPI Depends pattern), `E741` (legacy `l` variable in pre-existing files)
+- **LangSmith env vars**: pydantic-settings loads `.env` into `Settings` only, not `os.environ`. LangSmith SDK reads `os.environ` directly — bridge with `os.environ.setdefault()` in CLI scripts before any SDK import is used
+- **RAGAS + asyncio**: `evaluate()` calls `asyncio.run()` internally; inside an async context `nest_asyncio` patches it but the `RagasTracer` callback never fires → `IndexError` in `parse_run_traces`. Fix: `await loop.run_in_executor(None, lambda: evaluate(...))` to give it a fresh thread event loop
+- **RAGAS LangChain tracing**: set `LANGCHAIN_API_KEY` + `LANGCHAIN_TRACING_V2` alongside `LANGSMITH_*` vars so RAGAS's LangChain-based metrics are also traced

@@ -7,6 +7,7 @@ import re
 from collections.abc import AsyncGenerator
 
 from langsmith import traceable
+from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
 
 from stripe_rag.config import Settings
@@ -41,7 +42,7 @@ def check_guardrails(question: str) -> bool:
 class AnswerGenerator:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._llm = AsyncOpenAI(api_key=settings.openai_api_key)
+        self._llm = wrap_openai(AsyncOpenAI(api_key=settings.openai_api_key))
 
         dense_embedder = OpenAIEmbedder(settings.openai_api_key, settings.openai_embedding_model)
         sparse_embedder = SparseEmbedder()
@@ -56,6 +57,22 @@ class AnswerGenerator:
             sparse_top_k=settings.retrieval_sparse_top_k,
         )
         self._reranker = get_reranker(settings.cohere_api_key, settings.cohere_rerank_top_n)
+
+    def _model_kwargs(self) -> dict:
+        """Return model-specific kwargs for chat completions.
+
+        Newer OpenAI models (o-series, gpt-5+):
+          - require max_completion_tokens instead of max_tokens
+          - only support temperature=1 (default), so omit it
+        """
+        model = self._settings.llm_model
+        is_new = model.startswith("o") or model.startswith("gpt-5")
+        kwargs: dict = {
+            "max_completion_tokens" if is_new else "max_tokens": self._settings.llm_max_tokens
+        }
+        if not is_new:
+            kwargs["temperature"] = self._settings.llm_temperature
+        return kwargs
 
     def _build_messages(self, question: str, chunks: list[RetrievedChunk]) -> list[dict]:
         context = format_context_blocks(chunks)
@@ -72,8 +89,7 @@ class AnswerGenerator:
         response = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
             messages=self._build_messages(question, chunks),
-            temperature=self._settings.llm_temperature,
-            max_tokens=self._settings.llm_max_tokens,
+            **self._model_kwargs(),
         )
         return response.choices[0].message.content or ""
 
@@ -89,8 +105,7 @@ class AnswerGenerator:
         stream = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
             messages=self._build_messages(question, chunks),
-            temperature=self._settings.llm_temperature,
-            max_tokens=self._settings.llm_max_tokens,
+            **self._model_kwargs(),
             stream=True,
         )
 

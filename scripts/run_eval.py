@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -21,29 +22,54 @@ logger = logging.getLogger(__name__)
 
 async def main() -> None:
     settings = get_settings()
+
+    # Ensure LangSmith SDK can find credentials from Settings/.env
+    if settings.langsmith_api_key and settings.langsmith_tracing:
+        os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
+        os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
+        os.environ.setdefault("LANGSMITH_TRACING", "true")
+        # RAGAS uses LangChain internally — set legacy vars too
+        os.environ.setdefault("LANGCHAIN_API_KEY", settings.langsmith_api_key)
+        os.environ.setdefault("LANGCHAIN_PROJECT", settings.langsmith_project)
+        os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
+
     summary = await run_evaluation(settings)
 
-    # Print final summary table
     print("\n" + "=" * 60)
-    print("EVALUATION RESULTS")
+    print("EVALUATION RESULTS (RAGAS LLM-as-Judge)")
     print("=" * 60)
-    print(f"Total questions  : {summary.total}")
-    print(f"source_hit_rate  : {summary.source_hit_rate:.2%}")
-    print(f"keyword_hit_rate : {summary.keyword_hit_rate:.2%}")
-    print(f"avg_latency_ms   : {summary.avg_latency_ms:.0f}ms")
+    print(f"Total questions      : {summary.total}")
+    print(f"faithfulness         : {summary.avg_faithfulness:.2f}")
+    print(f"response_relevancy   : {summary.avg_relevancy:.2f}")
+    print(f"context_recall       : {summary.avg_context_recall:.2f}")
+    print(f"factual_correctness  : {summary.avg_factual_correctness:.2f}")
+    print(f"avg_latency_ms       : {summary.avg_latency_ms:.0f}ms")
     print("=" * 60)
 
     targets_met = (
-        summary.source_hit_rate >= 0.80 and summary.keyword_hit_rate >= 0.75
+        summary.avg_faithfulness >= 0.80
+        and summary.avg_relevancy >= 0.75
+        and summary.avg_context_recall >= 0.75
+        and summary.avg_factual_correctness >= 0.75
     )
     if targets_met:
-        print("✓ All targets met (source ≥ 80%, keyword ≥ 75%)")
+        print("✓ All targets met")
     else:
         print("✗ Targets not yet met")
-        if summary.source_hit_rate < 0.80:
-            print(f"  source_hit_rate {summary.source_hit_rate:.2%} < 80% target")
-        if summary.keyword_hit_rate < 0.75:
-            print(f"  keyword_hit_rate {summary.keyword_hit_rate:.2%} < 75% target")
+        if summary.avg_faithfulness < 0.80:
+            print(f"  faithfulness {summary.avg_faithfulness:.2f} < 0.80 target")
+        if summary.avg_relevancy < 0.75:
+            print(f"  response_relevancy {summary.avg_relevancy:.2f} < 0.75 target")
+        if summary.avg_context_recall < 0.75:
+            print(f"  context_recall {summary.avg_context_recall:.2f} < 0.75 target")
+        if summary.avg_factual_correctness < 0.75:
+            print(f"  factual_correctness {summary.avg_factual_correctness:.2f} < 0.75 target")
+
+    if settings.langsmith_api_key and settings.langsmith_tracing:
+        print(f"\nLangSmith project  : {settings.langsmith_project}")
+        if summary.experiment_name:
+            print(f"Experiment name    : {summary.experiment_name}")
+        print("Datasets & Exps    : https://smith.langchain.com (Datasets tab)")
 
     sys.exit(0 if targets_met else 1)
 
