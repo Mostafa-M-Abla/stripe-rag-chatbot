@@ -74,27 +74,32 @@ class AnswerGenerator:
             kwargs["temperature"] = self._settings.llm_temperature
         return kwargs
 
-    def _build_messages(self, question: str, chunks: list[RetrievedChunk]) -> list[dict]:
+    def _build_messages(
+        self,
+        question: str,
+        chunks: list[RetrievedChunk],
+        history: list[dict] | None = None,
+    ) -> list[dict]:
         context = format_context_blocks(chunks)
-        return [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": f"Context:\n\n{context}\n\nQuestion: {question}",
-            },
-        ]
+        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": f"Context:\n\n{context}\n\nQuestion: {question}"})
+        return messages
 
-    async def generate(self, question: str, chunks: list[RetrievedChunk]) -> str:
+    async def generate(
+        self, question: str, chunks: list[RetrievedChunk], history: list[dict] | None = None
+    ) -> str:
         """Non-streaming generation for evaluation."""
         response = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
-            messages=self._build_messages(question, chunks),
+            messages=self._build_messages(question, chunks, history),
             **self._model_kwargs(),
         )
         return response.choices[0].message.content or ""
 
     async def generate_stream(
-        self, question: str, chunks: list[RetrievedChunk]
+        self, question: str, chunks: list[RetrievedChunk], history: list[dict] | None = None
     ) -> AsyncGenerator[str]:
         """
         Async generator yielding SSE-ready JSON strings:
@@ -104,7 +109,7 @@ class AnswerGenerator:
         """
         stream = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
-            messages=self._build_messages(question, chunks),
+            messages=self._build_messages(question, chunks, history),
             **self._model_kwargs(),
             stream=True,
         )
@@ -131,6 +136,7 @@ class AnswerGenerator:
         self,
         question: str,
         section_filter: str | None = None,
+        history: list[dict] | None = None,
     ) -> tuple[str, list[RetrievedChunk]]:
         """Full RAG pipeline: guard → retrieve → rerank → generate."""
         if not check_guardrails(question):
@@ -147,13 +153,14 @@ class AnswerGenerator:
             chunks=chunks,
             top_n=self._settings.cohere_rerank_top_n,
         )
-        answer_text = await self.generate(question, reranked)
+        answer_text = await self.generate(question, reranked, history)
         return answer_text, reranked
 
     async def answer_stream(
         self,
         question: str,
         section_filter: str | None = None,
+        history: list[dict] | None = None,
     ) -> AsyncGenerator[str]:
         """Full RAG pipeline with streaming generation."""
         if not check_guardrails(question):
@@ -173,5 +180,5 @@ class AnswerGenerator:
             chunks=chunks,
             top_n=self._settings.cohere_rerank_top_n,
         )
-        async for event in self.generate_stream(question, reranked):
+        async for event in self.generate_stream(question, reranked, history):
             yield event

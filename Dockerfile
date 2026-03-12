@@ -14,14 +14,15 @@ COPY src/ src/
 # Install all dependencies
 RUN pip install --no-cache-dir -e "."
 
-# Pre-download BM42 sparse model at build time to avoid cold-start delay
-RUN python -c "\
-from fastembed import SparseTextEmbedding; \
-SparseTextEmbedding('Qdrant/bm42-all-minilm-l6-v2-attentions')"
-
 # Non-root user for security
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
+
+# Pre-download BM42 sparse model at build time to avoid cold-start delay
+# Must run as appuser so the cache lands in /home/appuser/.cache/fastembed/
+RUN python -c "\
+from fastembed import SparseTextEmbedding; \
+SparseTextEmbedding('Qdrant/bm42-all-minilm-l6-v2-attentions')"
 
 EXPOSE 8080
 

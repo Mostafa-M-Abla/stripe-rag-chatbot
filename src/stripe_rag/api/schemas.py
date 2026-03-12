@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
         default=None,
         description="Limit retrieval to a section: payments | billing | connect | api | webhooks",
     )
+    session_id: str | None = Field(default=None, description="Omit to start a new session.")
 
 
 class SourceRef(BaseModel):
@@ -24,6 +25,7 @@ class ChatResponse(BaseModel):
     sources: list[SourceRef]
     latency_ms: float
     model: str
+    session_id: str  # always returned so client knows which session to reuse
 
 
 class HealthResponse(BaseModel):

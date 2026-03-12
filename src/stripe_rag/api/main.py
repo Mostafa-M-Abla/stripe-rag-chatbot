@@ -1,6 +1,7 @@
 """FastAPI application factory with lifespan, CORS, and middleware."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -19,6 +20,21 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+
+    # Session store (no external deps)
+    store = chat_module.SessionStore()
+    chat_module.set_store(store)
+
+    # Background cleanup: evict expired sessions every 5 minutes
+    async def _cleanup_loop() -> None:
+        while True:
+            await asyncio.sleep(300)
+            evicted = await store.evict_expired()
+            if evicted:
+                logger.info("Session cleanup: evicted %d expired sessions", evicted)
+
+    cleanup_task = asyncio.create_task(_cleanup_loop())
+
     logger.info("Initialising AnswerGenerator…")
     try:
         from stripe_rag.generation.generator import AnswerGenerator
@@ -28,7 +44,14 @@ async def lifespan(app: FastAPI):
         logger.info("AnswerGenerator ready")
     except Exception as exc:
         logger.error(f"AnswerGenerator init failed: {exc} — /chat endpoints will return 503")
+
     yield
+
+    cleanup_task.cancel()
+    try:
+        await cleanup_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Shutting down")
 
 
