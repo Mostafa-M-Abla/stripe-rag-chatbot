@@ -4,10 +4,10 @@ from stripe_rag.config import Settings, get_settings
 
 def test_settings_defaults():
     settings = get_settings()
-    assert settings.llm_model == "gpt-4o-mini"
+    assert settings.eval_embedding_model == "text-embedding-3-small"
     assert settings.openai_embedding_model == "text-embedding-3-large"
     assert settings.qdrant_collection_name == "stripe_docs"
-    assert settings.retrieval_final_top_k == 5
+    assert settings.retrieval_final_top_k == 25
     assert settings.langsmith_project == "stripe-rag-chatbot"
 
 

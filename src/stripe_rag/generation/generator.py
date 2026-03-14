@@ -10,9 +10,10 @@ from langsmith import traceable
 from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
 
-from stripe_rag.config import Settings
+from stripe_rag.config import Settings, _is_new_api_model
 from stripe_rag.generation.prompts import (
     REFUSAL_PATTERNS,
+    SOURCES_QUERY_PROMPT,
     SYSTEM_PROMPT,
     format_context_blocks,
 )
@@ -32,6 +33,19 @@ _GUARDRAIL_REPLY = (
     "I'm sorry, but I can't process that request. "
     "Please ask a question about Stripe documentation."
 )
+
+
+def _parse_source_list(text: str, max_n: int) -> list[int]:
+    """Parse '1,4' → [1, 4], clamping to valid range."""
+    indices = []
+    for tok in re.split(r"[,\s]+", text.strip()):
+        try:
+            n = int(tok)
+            if 1 <= n <= max_n:
+                indices.append(n)
+        except ValueError:
+            pass
+    return sorted(set(indices))
 
 
 def check_guardrails(question: str) -> bool:
@@ -66,7 +80,7 @@ class AnswerGenerator:
           - only support temperature=1 (default), so omit it
         """
         model = self._settings.llm_model
-        is_new = model.startswith("o") or model.startswith("gpt-5")
+        is_new = _is_new_api_model(model)
         kwargs: dict = {
             "max_completion_tokens" if is_new else "max_tokens": self._settings.llm_max_tokens
         }
@@ -103,21 +117,45 @@ class AnswerGenerator:
     ) -> AsyncGenerator[str]:
         """
         Async generator yielding SSE-ready JSON strings:
-          {"type": "token", "text": "..."}  — one per delta
+          {"type": "token", "text": "..."}  — one per delta (real-time)
           {"type": "sources", "sources": [...]}
           {"type": "done"}
+
+        Two-call strategy:
+          Call 1: stream clean prose token-by-token (no [Source N] markers).
+          Call 2: fast non-streaming call to identify which sources were used.
         """
+        # --- Call 1: stream clean prose ---
+        base_messages = self._build_messages(question, chunks, history)
         stream = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
-            messages=self._build_messages(question, chunks, history),
+            messages=base_messages,
             **self._model_kwargs(),
             stream=True,
         )
 
+        full_text = ""
         async for chunk in stream:
             delta = chunk.choices[0].delta.content
             if delta:
+                full_text += delta
                 yield json.dumps({"type": "token", "text": delta})
+
+        # --- Call 2: identify which sources were used ---
+        attribution_messages = base_messages + [
+            {"role": "assistant", "content": full_text},
+            {"role": "user", "content": SOURCES_QUERY_PROMPT.format(n=len(chunks))},
+        ]
+        attr_response = await self._llm.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=attribution_messages,
+            max_tokens=20,
+            temperature=0,
+        )
+        used_indices = _parse_source_list(
+            attr_response.choices[0].message.content or "", len(chunks)
+        )
+        cited_chunks = [chunks[i - 1] for i in used_indices]
 
         sources = [
             {
@@ -125,8 +163,9 @@ class AnswerGenerator:
                 "title": c.page_title,
                 "heading_path": c.heading_path,
                 "score": round(c.score, 4),
+                "content": c.content,
             }
-            for c in chunks
+            for c in cited_chunks
         ]
         yield json.dumps({"type": "sources", "sources": sources})
         yield json.dumps({"type": "done"})
@@ -154,7 +193,23 @@ class AnswerGenerator:
             top_n=self._settings.cohere_rerank_top_n,
         )
         answer_text = await self.generate(question, reranked, history)
-        return answer_text, reranked
+
+        # Identify which sources were used via a fast follow-up call
+        attribution_messages = self._build_messages(question, reranked, history) + [
+            {"role": "assistant", "content": answer_text},
+            {"role": "user", "content": SOURCES_QUERY_PROMPT.format(n=len(reranked))},
+        ]
+        attr_response = await self._llm.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=attribution_messages,
+            max_tokens=20,
+            temperature=0,
+        )
+        used_indices = _parse_source_list(
+            attr_response.choices[0].message.content or "", len(reranked)
+        )
+        cited_chunks = [reranked[i - 1] for i in used_indices]
+        return answer_text, cited_chunks
 
     async def answer_stream(
         self,

@@ -72,7 +72,9 @@
       "Bash(.venv/Scripts/python -c \"import ragas.metrics.collections as c; print\\([x for x in dir\\(c\\) if not x.startswith\\('_'\\)]\\)\" 2>&1)",
       "Bash(.venv/Scripts/python -c \"from langsmith.evaluation import EvaluationResult; print\\('ok'\\)\" 2>&1)",
       "Bash(.venv/Scripts/python -c \"\nfrom langsmith import aevaluate\nfrom langsmith.schemas import Example, Run\nfrom ragas.dataset_schema import SingleTurnSample\nfrom ragas.metrics import FactualCorrectness, Faithfulness, LLMContextRecall, ResponseRelevancy\nprint\\('all imports ok'\\)\n\" 2>&1)",
-      "Bash(.venv/Scripts/python -c \"from stripe_rag.evaluation.runner import run_evaluation, EvalSummary; print\\('runner imports ok'\\)\" 2>&1)"
+      "Bash(.venv/Scripts/python -c \"from stripe_rag.evaluation.runner import run_evaluation, EvalSummary; print\\('runner imports ok'\\)\" 2>&1)",
+      "Bash(cd D:/git/stripe-rag-chatbot && .venv/Scripts/pytest tests/ -v 2>&1 | tail -20)",
+      "Bash(.venv/Scripts/pytest tests/ -v 2>&1 | tail -20)"
     ]
   }
 }

@@ -146,7 +146,7 @@ stripe-rag-chatbot/
 **Key `config.py` fields:**
 - OpenAI: `openai_api_key`, `openai_embedding_model="text-embedding-3-large"`, `llm_model="gpt-4o-mini"`, `llm_temperature=0.1`, `llm_max_tokens=1024`
 - Qdrant: `qdrant_url`, `qdrant_api_key`, `qdrant_collection_name="stripe_docs"`
-- Retrieval: `retrieval_dense_top_k=20`, `retrieval_sparse_top_k=20`, `retrieval_final_top_k=5`
+- Retrieval: `retrieval_dense_top_k=40`, `retrieval_sparse_top_k=40`, `retrieval_final_top_k=25`
 - Reranking: `cohere_api_key=None`, `cohere_rerank_top_n=5`
 - Crawler: `crawler_concurrency=10`, `crawler_delay_seconds=0.5`, `crawler_max_pages=2000`
 - LangSmith: `langsmith_api_key`, `langsmith_project="stripe-rag-chatbot"`, `langsmith_tracing=True`
@@ -223,9 +223,23 @@ stripe-rag-chatbot/
 - Both retriever and rerankers decorated with `@traceable`
 - RRF scores are relative rank-based (0.25–0.5 range is normal and expected)
 
+**Retrieval chain (chunk counts):**
+```
+Dense prefetch (40) ─┐
+                      ├─ RRF fusion → top 25 → Cohere Reranker → top 5 → LLM
+Sparse prefetch (40) ─┘
+```
+- `retrieval_dense_top_k=40`, `retrieval_sparse_top_k=40` → up to 80 unique candidates
+- Qdrant returns top `retrieval_final_top_k=25` after server-side RRF fusion
+- Cohere reranker receives 25, aggressively filters to `cohere_rerank_top_n=5` for LLM
+- **RRF score**: rank-based fusion (`Σ 1/(60+rank)`), values ~0.25–0.50 — *not* cosine similarity.
+  Without Cohere this is the final score the UI displays. With Cohere it is replaced by Cohere's
+  semantic relevance_score (0–1).
+- **No MMR**: diversity is not enforced; top chunks can be semantically similar.
+
 **Verified via smoke_test.py:**
 - Query "How do I create a PaymentIntent?" → 5 chunks, all `docs.stripe.com` URLs ✓
-- Top result: "Create a PaymentIntent | Stripe API Reference" ✓
+- Top result: "Create a PaymentIntent | Stripe API Reference"`
 
 **Next:** Add `COHERE_API_KEY` to `.env` to enable Cohere reranking (currently using NoOpReranker)
 

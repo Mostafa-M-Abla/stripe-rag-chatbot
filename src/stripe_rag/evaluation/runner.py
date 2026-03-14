@@ -17,7 +17,7 @@ from ragas.llms import LangchainLLMWrapper
 from ragas.metrics import FactualCorrectness, Faithfulness, LLMContextRecall, ResponseRelevancy
 from ragas.dataset_schema import SingleTurnSample
 
-from stripe_rag.config import Settings
+from stripe_rag.config import Settings, _is_new_api_model
 from stripe_rag.evaluation.eval_set import load_eval_set
 from stripe_rag.generation.generator import AnswerGenerator
 
@@ -123,13 +123,13 @@ async def run_evaluation(settings: Settings) -> EvalSummary:
     logger.info("Running evaluation on %d questions…", len(eval_set))
 
     _eval_model = settings.eval_llm_model
-    _bypass_temp = _eval_model.startswith("gpt-5") or _eval_model.startswith("o")
+    _bypass_temp = _is_new_api_model(_eval_model)
     evaluator_llm = LangchainLLMWrapper(
         ChatOpenAI(model=_eval_model),
         bypass_temperature=_bypass_temp,
     )
     evaluator_embeddings = LangchainEmbeddingsWrapper(
-        LangchainOpenAIEmbeddings(model="text-embedding-3-small")
+        LangchainOpenAIEmbeddings(model=settings.eval_embedding_model)
     )
 
     m_faithfulness = Faithfulness()

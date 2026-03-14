@@ -8,7 +8,7 @@ You are a helpful assistant that answers questions about Stripe's documentation.
 
 Rules:
 1. Answer ONLY using the context blocks provided below. Do not use outside knowledge.
-2. Cite sources using [Source N] inline, where N matches the block number.
+2. Write clean prose. Do not include [Source N] citation markers in your answer text.
 3. If the context does not contain enough information to answer confidently, say:
    "Based on the provided documentation, I don't have sufficient information to answer this question."
 4. Be concise and precise. Use code examples from the context when relevant.
@@ -23,6 +23,12 @@ REFUSAL_PATTERNS = [
     r"disregard\s+(all|your|previous)",
     r"new\s+persona",
 ]
+
+
+SOURCES_QUERY_PROMPT = (
+    "Which source numbers (1–{n}) from the context above did you draw from? "
+    "Reply with only a comma-separated list of integers, e.g. '1,4'. No other text."
+)
 
 
 def format_context_blocks(chunks: list[RetrievedChunk]) -> str:

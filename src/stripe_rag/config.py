@@ -11,6 +11,11 @@ _PROJECT_ROOT = Path(__file__).parent.parent.parent
 _ENV_FILE = _PROJECT_ROOT / ".env"
 
 
+def _is_new_api_model(model_name: str) -> bool:
+    """Return True for o-series and gpt-5+ models (use max_completion_tokens, no temperature)."""
+    return model_name.startswith("o") or model_name.startswith("gpt-5")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
@@ -24,6 +29,7 @@ class Settings(BaseSettings):
     openai_embedding_model: str = "text-embedding-3-large"
     llm_model: str = "gpt-4.1"
     eval_llm_model: str = "gpt-5-mini"
+    eval_embedding_model: str = "text-embedding-3-small"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1024
 
@@ -33,9 +39,9 @@ class Settings(BaseSettings):
     qdrant_collection_name: str = "stripe_docs"
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
-    retrieval_dense_top_k: int = 20
-    retrieval_sparse_top_k: int = 20
-    retrieval_final_top_k: int = 5
+    retrieval_dense_top_k: int = 40
+    retrieval_sparse_top_k: int = 40
+    retrieval_final_top_k: int = 25
 
     # ── Reranking ─────────────────────────────────────────────────────────────
     cohere_api_key: str | None = None

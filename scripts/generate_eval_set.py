@@ -65,14 +65,14 @@ def sample_chunks(chunks: list[dict]) -> list[dict]:
     return sampled
 
 
-def generate_qa(client: OpenAI, chunk: dict) -> dict | None:
-    """Call gpt-4o-mini to generate a Q&A pair from a chunk."""
+def generate_qa(client: OpenAI, chunk: dict, model: str) -> dict | None:
+    """Generate a Q&A pair from a chunk using the given model."""
     content = chunk.get("content", "").strip()
     if not content:
         return None
 
     response = client.chat.completions.create(
-        model="gpt-4o-mini",
+        model=model,
         messages=[
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": content[:2000]},  # cap at 2000 chars
@@ -117,7 +117,7 @@ def main() -> None:
     for i, chunk in enumerate(sampled, start=1):
         section = chunk.get("section_prefix", "?")
         print(f"  [{i}/{len(sampled)}] section={section} chunk_id={chunk.get('chunk_id', '?')[:40]}")
-        item = generate_qa(client, chunk)
+        item = generate_qa(client, chunk, model=settings.llm_model)
         if item:
             items.append(item)
 
