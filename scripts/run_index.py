@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments: ``--stage``, ``--dry-run``, ``--no-recreate``."""
     p = argparse.ArgumentParser(description="Index Stripe docs into Qdrant")
     p.add_argument(
         "--stage",
@@ -38,6 +39,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def run_chunk(settings, dry_run: bool) -> None:
+    """Load ``documents.jsonl``, chunk all pages, and write ``chunks.jsonl``."""
     input_jsonl = settings.documents_jsonl
     output_jsonl = settings.chunks_jsonl
 
@@ -55,6 +57,11 @@ def run_chunk(settings, dry_run: bool) -> None:
 
 
 async def run_embed_index(settings, dry_run: bool, recreate: bool) -> None:
+    """Load ``chunks.jsonl``, embed all chunks, and upsert into Qdrant.
+
+    If ``recreate`` is True (the default), the collection is dropped and recreated first
+    to avoid stale duplicate points from previous runs.
+    """
     if not settings.chunks_jsonl.exists():
         logger.error(f"Chunks file not found: {settings.chunks_jsonl}  (run --stage chunk first)")
         sys.exit(1)
@@ -71,6 +78,7 @@ async def run_embed_index(settings, dry_run: bool, recreate: bool) -> None:
 
 
 def main() -> None:
+    """Orchestrate chunk → embed → index stages, honouring ``--stage`` and ``--no-recreate``."""
     args = parse_args()
     settings = get_settings()
     recreate = not args.no_recreate  # default: True (always start clean)

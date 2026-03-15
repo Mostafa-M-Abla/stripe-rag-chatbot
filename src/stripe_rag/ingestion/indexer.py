@@ -26,6 +26,13 @@ _UPSERT_BATCH = 100
 
 
 class QdrantIndexer:
+    """Manages the Qdrant collection lifecycle and bulk upsert of embedded chunks.
+
+    Responsible for: creating / dropping the collection (HNSW config is set once at
+    creation), and upserting batches of ``PointStruct`` objects that carry both a
+    3072-dim dense vector and a BM42 sparse vector.
+    """
+
     def __init__(
         self,
         url: str,
@@ -34,6 +41,15 @@ class QdrantIndexer:
         dense_embedder: OpenAIEmbedder,
         sparse_embedder: SparseEmbedder,
     ) -> None:
+        """Initialise the async Qdrant client and attach embedders.
+
+        Args:
+            url: Qdrant cluster URL (e.g. ``https://xxx.qdrant.io:6333``).
+            api_key: Qdrant API key; ``None`` for unauthenticated local instances.
+            collection_name: Name of the collection to create / upsert into.
+            dense_embedder: ``OpenAIEmbedder`` instance for dense vector generation.
+            sparse_embedder: ``SparseEmbedder`` instance for BM42 sparse vectors.
+        """
         self._collection_name = collection_name
         self._dense = dense_embedder
         self._sparse = sparse_embedder
@@ -78,6 +94,11 @@ class QdrantIndexer:
 
     @retry(stop=stop_after_attempt(5), wait=wait_exponential(multiplier=2, min=4, max=60))
     async def _upsert_with_retry(self, points: list[PointStruct]) -> None:
+        """Upsert a batch of points with up to 5 retries (4–60 s exponential back-off).
+
+        Guards against Qdrant Cloud cold-start timeouts that would otherwise fail the
+        entire indexing run on the first few batches.
+        """
         await self._client.upsert(collection_name=self._collection_name, points=points)
 
     async def upsert_chunks(self, chunks_jsonl: Path) -> int:

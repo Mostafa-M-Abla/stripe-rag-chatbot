@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 
 async def main() -> None:
+    """Bridge pydantic Settings → ``os.environ`` for the LangSmith SDK, run evaluation, and print results.
+
+    The LangSmith SDK reads credentials from ``os.environ`` directly (not from pydantic
+    settings), so this function calls ``os.environ.setdefault()`` before invoking
+    ``run_evaluation()``.  Exits with code 1 if any metric target is not met.
+    """
     settings = get_settings()
 
     # Ensure LangSmith SDK can find credentials from Settings/.env

@@ -81,6 +81,11 @@ async def _call_judge(client: AsyncOpenAI, model: str, system: str, user: str) -
 async def _judge_faithfulness(
     client: AsyncOpenAI, model: str, answer: str, contexts: list[str]
 ) -> float | None:
+    """Score how well every factual claim in the answer is supported by the retrieved context.
+
+    Score = (supported claims) / (total claims).  Claims not grounded in context
+    lower the score; a groundless answer scores 0.
+    """
     context_text = "\n\n---\n\n".join(contexts) if contexts else "(none)"
     user = f"CONTEXT:\n{context_text}\n\nANSWER:\n{answer}"
     return await _call_judge(client, model, _FAITHFULNESS_SYSTEM, user)
@@ -89,6 +94,10 @@ async def _judge_faithfulness(
 async def _judge_answer_relevancy(
     client: AsyncOpenAI, model: str, question: str, answer: str
 ) -> float | None:
+    """Score how directly and completely the answer addresses the question.
+
+    Penalises off-topic or vague answers; does not penalise for facts not asked about.
+    """
     user = f"QUESTION:\n{question}\n\nANSWER:\n{answer}"
     return await _call_judge(client, model, _RELEVANCY_SYSTEM, user)
 
@@ -96,6 +105,10 @@ async def _judge_answer_relevancy(
 async def _judge_context_recall(
     client: AsyncOpenAI, model: str, reference_answer: str, contexts: list[str]
 ) -> float | None:
+    """Score the proportion of key facts from the reference answer present in the retrieved context.
+
+    Measures retrieval quality: a score of 1.0 means all reference facts were retrieved.
+    """
     context_text = "\n\n---\n\n".join(contexts) if contexts else "(none)"
     user = f"REFERENCE ANSWER:\n{reference_answer}\n\nRETRIEVED CONTEXT:\n{context_text}"
     return await _call_judge(client, model, _CONTEXT_RECALL_SYSTEM, user)
@@ -104,6 +117,11 @@ async def _judge_context_recall(
 async def _judge_factual_correctness(
     client: AsyncOpenAI, model: str, question: str, reference_answer: str, answer: str
 ) -> float | None:
+    """Score factual accuracy of the generated answer against the reference.
+
+    Checks API names, parameter names, numbers, and processes.  A correct-but-incomplete
+    answer still scores high; only wrong facts lower the score.
+    """
     user = (
         f"QUESTION:\n{question}\n\n"
         f"REFERENCE ANSWER:\n{reference_answer}\n\n"
@@ -117,7 +135,13 @@ async def _judge_factual_correctness(
 # ---------------------------------------------------------------------------
 
 def _make_judge_evaluator(metric_name: str, judge_coro):
-    """Return async per-item evaluator for LangSmith aevaluate."""
+    """Wrap a judge coroutine into the LangSmith per-item evaluator signature.
+
+    LangSmith ``aevaluate`` expects callables of the form
+    ``async (run, example) -> EvaluationResult``.  This factory adapts any judge
+    coroutine (which receives ``run`` and ``example``) into that shape and tags the
+    result with ``metric_name`` so it appears as a named column in the Experiments UI.
+    """
 
     async def evaluator(run: Run, example: Example) -> EvaluationResult:
         score = await judge_coro(run, example)
@@ -179,6 +203,18 @@ async def _latency_evaluator(run: Run, example: Example) -> EvaluationResult:
 
 @dataclass
 class EvalSummary:
+    """Aggregated per-metric averages for one evaluation run.
+
+    Fields:
+        total: Number of questions evaluated.
+        avg_faithfulness: Mean faithfulness score across all questions.
+        avg_relevancy: Mean answer-relevancy score.
+        avg_context_recall: Mean context-recall score.
+        avg_factual_correctness: Mean factual-correctness score.
+        avg_latency_ms: Mean end-to-end latency in milliseconds.
+        experiment_name: LangSmith experiment name assigned by ``aevaluate``.
+    """
+
     total: int
     avg_faithfulness: float
     avg_relevancy: float
@@ -215,7 +251,12 @@ def _sync_dataset(client: LangSmithClient, eval_set: list, dataset_name: str) ->
 
 
 def _make_target(generator: AnswerGenerator):
-    """Return async target function for aevaluate."""
+    """Return the async target callable that LangSmith will invoke for each dataset example.
+
+    The target receives the example ``inputs`` dict (``question``, ``section_prefix``) and
+    returns an ``outputs`` dict (``answer``, ``retrieved_contexts``, ``source_urls``,
+    ``latency_ms``) that the evaluators then score.
+    """
 
     async def target(inputs: dict) -> dict:
         start = time.perf_counter()

@@ -12,16 +12,34 @@ logger = logging.getLogger(__name__)
 
 
 class BaseReranker(ABC):
+    """Abstract interface for reranking a list of ``RetrievedChunk`` objects."""
+
     @abstractmethod
     async def rerank(
         self, query: str, chunks: list[RetrievedChunk], top_n: int
-    ) -> list[RetrievedChunk]: ...
+    ) -> list[RetrievedChunk]:
+        """Reorder (and optionally filter) ``chunks`` by relevance to ``query``.
+
+        Args:
+            query: Original user question.
+            chunks: Candidates from the retrieval stage (RRF-fused).
+            top_n: Maximum number of chunks to return.
+
+        Returns:
+            Reordered list of at most ``top_n`` chunks with updated scores.
+        """
+        ...
 
 
 class CohereReranker(BaseReranker):
     """Rerank using Cohere Rerank v3 API."""
 
     def __init__(self, api_key: str) -> None:
+        """Initialise the async Cohere client.
+
+        Args:
+            api_key: Cohere API key (set via ``COHERE_API_KEY`` in ``.env``).
+        """
         import cohere  # type: ignore[import-untyped]
 
         self._client = cohere.AsyncClient(api_key=api_key)
@@ -30,6 +48,7 @@ class CohereReranker(BaseReranker):
     async def rerank(
         self, query: str, chunks: list[RetrievedChunk], top_n: int
     ) -> list[RetrievedChunk]:
+        """Call Cohere rerank API and replace RRF scores with Cohere relevance scores (0–1)."""
         if not chunks:
             return []
 
@@ -62,6 +81,10 @@ class NoOpReranker(BaseReranker):
     async def rerank(
         self, query: str, chunks: list[RetrievedChunk], top_n: int
     ) -> list[RetrievedChunk]:
+        """Identity rerank: preserves RRF order, returning at most ``top_n`` chunks.
+
+        Used as a zero-dependency fallback when ``COHERE_API_KEY`` is absent.
+        """
         return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_n]
 
 

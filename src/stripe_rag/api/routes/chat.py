@@ -25,12 +25,28 @@ router = APIRouter()
 
 @dataclass
 class Session:
+    """In-memory conversation state for a single user session.
+
+    Fields:
+        history: Ordered list of ``{role, content}`` message dicts (capped at ``MAX_HISTORY``).
+        last_accessed: UTC timestamp updated on every read or write; used for TTL eviction.
+        lock: Per-session async lock that serialises concurrent requests on the same session.
+    """
+
     history: list[dict] = field(default_factory=list)
     last_accessed: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 class SessionStore:
+    """In-memory registry of active user sessions with TTL eviction.
+
+    Sessions are keyed by UUID string.  History is trimmed to ``MAX_HISTORY`` messages
+    (10 turns) on every write.  Sessions idle longer than ``TTL_SECONDS`` are evicted
+    lazily on each ``evict_expired()`` call (triggered every 5 minutes by the lifespan
+    background task).
+    """
+
     MAX_HISTORY = 20   # messages = 10 turns
     TTL_SECONDS = 7_200  # 2 hours
 
@@ -39,6 +55,14 @@ class SessionStore:
         self._lock = asyncio.Lock()  # guards dict mutations only
 
     async def get_or_create(self, session_id: str | None) -> tuple[str, Session]:
+        """Return an existing session (bumping ``last_accessed``) or create a new one.
+
+        Args:
+            session_id: Client-supplied UUID, or ``None`` to force a new session.
+
+        Returns:
+            ``(session_id, session)`` — the ID is always the canonical one to echo back.
+        """
         async with self._lock:
             if session_id and session_id in self._sessions:
                 s = self._sessions[session_id]
@@ -50,6 +74,7 @@ class SessionStore:
             return new_id, s
 
     async def append_turn(self, session_id: str, question: str, answer: str) -> None:
+        """Append one user/assistant turn to the session history and trim to ``MAX_HISTORY``."""
         async with self._lock:
             s = self._sessions.get(session_id)
             if s is None:
@@ -63,6 +88,11 @@ class SessionStore:
             s.last_accessed = datetime.now(timezone.utc)
 
     async def evict_expired(self) -> int:
+        """Remove sessions idle longer than ``TTL_SECONDS``; returns the eviction count.
+
+        Called by the background loop in ``lifespan`` every 5 minutes to prevent
+        unbounded memory growth in long-running deployments.
+        """
         now = datetime.now(timezone.utc)
         async with self._lock:
             expired = [
@@ -83,23 +113,33 @@ _store: SessionStore | None = None
 
 
 def get_generator() -> AnswerGenerator:
+    """FastAPI ``Depends`` accessor for the shared ``AnswerGenerator`` singleton.
+
+    Raises HTTP 503 if ``set_generator()`` was not called during lifespan startup.
+    """
     if _generator is None:
         raise HTTPException(status_code=503, detail="Generator not initialised")
     return _generator
 
 
 def set_generator(gen: AnswerGenerator) -> None:
+    """Inject the ``AnswerGenerator`` singleton; called once from ``lifespan``."""
     global _generator
     _generator = gen
 
 
 def get_store() -> SessionStore:
+    """FastAPI ``Depends`` accessor for the shared ``SessionStore`` singleton.
+
+    Raises HTTP 503 if ``set_store()`` was not called during lifespan startup.
+    """
     if _store is None:
         raise HTTPException(status_code=503, detail="Session store not initialised")
     return _store
 
 
 def set_store(store: SessionStore) -> None:
+    """Inject the ``SessionStore`` singleton; called once from ``lifespan``."""
     global _store
     _store = store
 
@@ -114,6 +154,12 @@ async def chat(
     generator: AnswerGenerator = Depends(get_generator),
     store: SessionStore = Depends(get_store),
 ) -> ChatResponse:
+    """``POST /chat`` — non-streaming RAG endpoint.
+
+    Looks up or creates a session, runs the full RAG pipeline, appends the turn to
+    history (only if sources were found), and returns a ``ChatResponse`` with the
+    answer, cited sources, latency, model name, and session ID.
+    """
     settings = get_settings()
     session_id, session = await store.get_or_create(request.session_id)
 
@@ -155,12 +201,23 @@ async def chat_stream(
     generator: AnswerGenerator = Depends(get_generator),
     store: SessionStore = Depends(get_store),
 ) -> StreamingResponse:
+    """``POST /chat/stream`` — SSE streaming RAG endpoint.
+
+    Returns a ``StreamingResponse`` (``text/event-stream``) whose body is produced by
+    the ``event_stream`` async generator below.  SSE events in order:
+    ``token`` (one per LLM delta) → ``sources`` → ``done`` → ``session_id``.
+    """
     session_id, session = await store.get_or_create(request.session_id)
 
     async with session.lock:
         history_snapshot = list(session.history)
 
     async def event_stream() -> AsyncGenerator[str, None]:
+        """Async generator that drives the SSE loop for one streaming request.
+
+        Accumulates streamed tokens, detects guardrail hits (empty sources), appends the
+        completed turn to session history, and emits the ``session_id`` as a final event.
+        """
         accumulated = ""
         guardrail_hit = False
 

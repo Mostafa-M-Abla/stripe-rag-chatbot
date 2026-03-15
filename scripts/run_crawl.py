@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments: ``--max-pages``, ``--concurrency``, ``--dry-run``."""
     p = argparse.ArgumentParser(description="Crawl Stripe documentation")
     p.add_argument("--max-pages", type=int, default=None)
     p.add_argument("--dry-run", action="store_true", help="Print seed URLs and exit")
@@ -30,6 +31,7 @@ def parse_args() -> argparse.Namespace:
 
 
 async def main() -> None:
+    """Entry point: build settings, instantiate ``StripeCrawler``, run, and log summary."""
     args = parse_args()
     settings = get_settings()
 

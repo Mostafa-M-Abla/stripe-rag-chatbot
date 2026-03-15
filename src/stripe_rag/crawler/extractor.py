@@ -22,6 +22,11 @@ _NOISE_TAGS = [
 
 
 def get_section_prefix(url: str) -> str:
+    """Map a Stripe doc URL to a short section label used as a Qdrant payload filter.
+
+    Returns the final path segment of the matching seed prefix
+    (e.g. ``"payments"``, ``"billing"``, ``"api"``), or ``"other"`` if no seed matches.
+    """
     for prefix in _SEED_PREFIXES:
         if url.startswith(prefix):
             # e.g. "payments", "billing", "connect", "api"
@@ -30,12 +35,21 @@ def get_section_prefix(url: str) -> str:
 
 
 def url_to_slug(url: str) -> str:
+    """Convert a URL to a filesystem-safe slug for raw HTML and markdown output files.
+
+    Strips the scheme, replaces ``/`` and ``.`` with ``_``, and caps length at 200 chars.
+    """
     slug = url.replace("https://", "").replace("http://", "")
     slug = re.sub(r"[/.]", "_", slug)
     return slug[:200]  # cap length for filesystem safety
 
 
 def extract_page(raw: RawPage) -> ExtractedPage:
+    """Convert a raw HTML page into a cleaned, markdown-ready ``ExtractedPage``.
+
+    Pipeline: strip noise tags → extract title + headings → locate main content element
+    → convert to ATX markdown via markdownify → collapse excessive blank lines.
+    """
     soup = BeautifulSoup(raw.html, "lxml")
 
     # Remove noise elements

@@ -36,7 +36,11 @@ _GUARDRAIL_REPLY = (
 
 
 def _parse_source_list(text: str, max_n: int) -> list[int]:
-    """Parse '1,4' → [1, 4], clamping to valid range."""
+    """Extract ``[Source N]`` citation numbers from the attribution response.
+
+    Parses a comma/space-separated string such as ``"1, 4"`` and returns a sorted,
+    deduplicated list of 1-based indices clamped to ``[1, max_n]``.
+    """
     indices = []
     for tok in re.split(r"[,\s]+", text.strip()):
         try:
@@ -54,7 +58,21 @@ def check_guardrails(question: str) -> bool:
 
 
 class AnswerGenerator:
+    """Orchestrates the full RAG pipeline: guardrail → retrieve → rerank → generate.
+
+    Supports both blocking (``answer()``) and SSE streaming (``answer_stream()``) modes.
+    All entry-point methods are decorated with ``@traceable`` so every invocation appears
+    as a named run in the LangSmith project.
+    """
+
     def __init__(self, settings: Settings) -> None:
+        """Wire up the LLM client, embedders, retriever, and reranker from ``settings``.
+
+        Args:
+            settings: Parsed ``Settings`` instance supplying API keys and tuning params.
+                The ``HybridRetriever`` and reranker are instantiated here so startup
+                errors surface early (during lifespan, not on the first request).
+        """
         self._settings = settings
         self._llm = wrap_openai(AsyncOpenAI(api_key=settings.openai_api_key))
 
@@ -94,6 +112,11 @@ class AnswerGenerator:
         chunks: list[RetrievedChunk],
         history: list[dict] | None = None,
     ) -> list[dict]:
+        """Assemble the ``[system, …history…, user]`` message list for the LLM.
+
+        Injects ``SYSTEM_PROMPT`` at position 0, appends any prior conversation turns,
+        then appends a user message containing the numbered context blocks and the question.
+        """
         context = format_context_blocks(chunks)
         messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         if history:

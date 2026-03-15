@@ -17,6 +17,13 @@ def _is_new_api_model(model_name: str) -> bool:
 
 
 class Settings(BaseSettings):
+    """Single source of truth for all runtime configuration.
+
+    Loaded from the `.env` file (and environment variables) via pydantic-settings.
+    Sections: OpenAI (embeddings + LLM), Qdrant (vector DB), retrieval tuning,
+    Cohere reranking, crawler parameters, LangSmith observability, and filesystem paths.
+    """
+
     model_config = SettingsConfigDict(
         env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
@@ -87,4 +94,9 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    """Return the singleton Settings instance, parsing `.env` only once per process.
+
+    The `@lru_cache` ensures that `.env` is read and validated a single time; subsequent
+    calls return the cached object, making it safe to call from anywhere without overhead.
+    """
     return Settings()  # type: ignore[call-arg]

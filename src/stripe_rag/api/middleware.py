@@ -11,7 +11,15 @@ from starlette.responses import Response
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
+    """ASGI middleware that attaches a unique ``X-Request-ID`` header and emits structured logs.
+
+    For every request it generates a UUID, injects it into both the request context and
+    the response headers, times the downstream call, then prints a JSON log line with
+    method, path, status code, latency, and request ID.
+    """
+
     async def dispatch(self, request: Request, call_next) -> Response:  # type: ignore[override]
+        """Per-request handler: generate UUID, time the call, log on completion."""
         request_id = str(uuid.uuid4())
         start = time.perf_counter()
 

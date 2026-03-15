@@ -32,10 +32,16 @@ _HEADERS = {
 
 
 def _is_allowed_url(url: str) -> bool:
+    """Return True only for URLs within the four target Stripe doc sections."""
     return any(url.startswith(p) for p in _ALLOWED_PREFIXES)
 
 
 def _extract_links(html: str, base_url: str) -> list[str]:
+    """Parse ``<a href>`` tags, resolve to absolute URLs, and return allowed links.
+
+    Skips fragment-only anchors (``#…``) and ``javascript:`` pseudo-links.
+    Strips query strings and fragments so duplicate canonical URLs are deduplicated.
+    """
     soup = BeautifulSoup(html, "lxml")
     links: list[str] = []
     for a in soup.find_all("a", href=True):
@@ -52,6 +58,14 @@ def _extract_links(html: str, base_url: str) -> list[str]:
 
 
 class StripeCrawler:
+    """Async BFS crawler for Stripe documentation.
+
+    Concurrency is bounded by an ``asyncio.Semaphore``; each fetch is retried up to
+    three times with exponential back-off via tenacity.  Pages with fewer than 50 words
+    are silently discarded.  Results are written to ``data/raw_html/``, ``data/markdown/``,
+    and ``data/documents.jsonl`` as they are collected.
+    """
+
     def __init__(
         self,
         seed_urls: list[str],
@@ -62,6 +76,17 @@ class StripeCrawler:
         concurrency: int = 10,
         delay_seconds: float = 0.5,
     ) -> None:
+        """Initialise the crawler.
+
+        Args:
+            seed_urls: Starting URLs; BFS expands outward from these.
+            raw_html_dir: Directory where raw ``.html`` files are saved.
+            markdown_dir: Directory where converted ``.md`` files are saved.
+            documents_jsonl: Path to the output JSONL file (one page per line).
+            max_pages: Hard cap on the total number of pages crawled.
+            concurrency: Maximum number of simultaneous in-flight HTTP requests.
+            delay_seconds: Polite delay added after each fetch (inside the semaphore).
+        """
         self.seed_urls = seed_urls
         self.raw_html_dir = raw_html_dir
         self.markdown_dir = markdown_dir
@@ -74,6 +99,10 @@ class StripeCrawler:
         self.pages: list[ExtractedPage] = []
 
     async def run(self) -> list[ExtractedPage]:
+        """Entry point: seed the queue, drain it concurrently, then flush ``documents.jsonl``.
+
+        Returns the list of all successfully extracted pages.
+        """
         self.raw_html_dir.mkdir(parents=True, exist_ok=True)
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
         self.documents_jsonl.parent.mkdir(parents=True, exist_ok=True)
@@ -128,6 +157,7 @@ class StripeCrawler:
         queue: Queue,
         url: str,
     ) -> None:
+        """Worker coroutine: fetch one URL, extract content, save files, enqueue new links."""
         async with sem:
             try:
                 raw = await self._fetch(client, url)
@@ -173,6 +203,10 @@ class StripeCrawler:
         reraise=True,
     )
     async def _fetch(self, client: httpx.AsyncClient, url: str) -> RawPage:
+        """Perform a single HTTP GET with up to 3 tenacity retries (2–10 s back-off).
+
+        Raises on non-2xx status; the caller handles the resulting exception.
+        """
         response = await client.get(url)
         response.raise_for_status()
         return RawPage(

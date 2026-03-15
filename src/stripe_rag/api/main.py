@@ -19,6 +19,14 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """FastAPI lifespan context manager: build singletons on startup, cancel background tasks on shutdown.
+
+    On startup: creates the ``SessionStore``, launches a background cleanup loop that
+    evicts idle sessions every 5 minutes, then constructs ``AnswerGenerator`` (which
+    initialises embedders, retriever, and reranker).  All singletons are injected into
+    module-level state in the ``chat`` route module so ``Depends()`` accessors can reach them.
+    No explicit teardown is needed for stateless HTTP clients.
+    """
     settings = get_settings()
 
     # Session store (no external deps)
@@ -56,6 +64,13 @@ async def lifespan(app: FastAPI):
 
 
 def create_app() -> FastAPI:
+    """Application factory: configure and return the FastAPI app.
+
+    Enables CORS (all origins, for development convenience), registers
+    ``RequestIDMiddleware`` for structured request logging, and mounts the
+    ``health`` and ``chat`` routers.  The ``lifespan`` context manager is attached
+    here so startup/shutdown hooks run correctly.
+    """
     app = FastAPI(
         title="Stripe RAG Chatbot",
         description="Grounded Q&A over Stripe documentation with citations",

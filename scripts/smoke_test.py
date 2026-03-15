@@ -18,6 +18,10 @@ from stripe_rag.retrieval.retriever import HybridRetriever
 
 
 async def main() -> None:
+    """Run two checks: (1) Qdrant collection health and (2) a sample hybrid retrieval query.
+
+    Exits with a non-zero status code if either check fails.
+    """
     settings = get_settings()
 
     # ── 1. Collection health check ─────────────────────────────────────────

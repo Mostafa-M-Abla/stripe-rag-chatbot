@@ -33,6 +33,21 @@ _HEADING_RE = re.compile(r"^(#{1,4})\s+(.+)$", re.MULTILINE)
 
 @dataclass
 class Chunk:
+    """A single text chunk produced by ``HeadingAwareChunker``.
+
+    Fields:
+        chunk_id: UUID string used as the Qdrant point ID.
+        source_url: Canonical URL of the originating page (used as citation link).
+        page_title: Title of the originating page.
+        section_prefix: Short label (``"payments"``, ``"api"``, etc.) for Qdrant filtering.
+        heading_path: Breadcrumb of headings leading to this chunk, e.g. ``"A > B > C"``.
+        content: Full chunk text with ``heading_path`` prepended.
+        token_count: ``cl100k_base`` token count of ``content``.
+        char_count: Character length of ``content``.
+        chunk_index: 0-based position of this chunk within the page.
+        total_chunks: Total number of chunks produced for the page (filled in post-hoc).
+    """
+
     chunk_id: str
     source_url: str
     page_title: str
@@ -45,6 +60,7 @@ class Chunk:
     total_chunks: int     # filled in after all chunks for a page are known
 
     def to_dict(self) -> dict:
+        """Serialise to a JSON-compatible dict for ``chunks.jsonl`` persistence."""
         return {
             "chunk_id": self.chunk_id,
             "source_url": self.source_url,
@@ -62,10 +78,12 @@ class Chunk:
 # ── Token helpers ─────────────────────────────────────────────────────────────
 
 def _count_tokens(text: str) -> int:
+    """Return the number of ``cl100k_base`` tokens in ``text``."""
     return len(_ENCODER.encode(text, disallowed_special=()))
 
 
 def _decode_tokens(tokens: list[int]) -> str:
+    """Reconstruct text from a list of ``cl100k_base`` token IDs."""
     return _ENCODER.decode(tokens)
 
 
@@ -160,7 +178,11 @@ def _split_text_recursively(text: str, max_tokens: int, overlap_tokens: int) -> 
 
 
 def _token_windows(tokens: list[int], max_tokens: int, overlap_tokens: int) -> list[str]:
-    """Last-resort: sliding token windows."""
+    """Last-resort character-level fallback: sliding windows directly over token IDs.
+
+    Advances by ``max_tokens - overlap_tokens`` each step so adjacent windows share
+    ``overlap_tokens`` worth of context.
+    """
     chunks: list[str] = []
     start = 0
     while start < len(tokens):
@@ -175,19 +197,38 @@ def _token_windows(tokens: list[int], max_tokens: int, overlap_tokens: int) -> l
 # ── Stage 3: build Chunk objects ─────────────────────────────────────────────
 
 def _make_content(heading_path: str, body: str) -> str:
-    """Prepend heading_path to body so the embedding carries section context."""
+    """Prepend the heading breadcrumb to the body so every chunk is self-contained.
+
+    The heading path (e.g. ``"Charges > Create a charge > Parameters"``) is embedded
+    alongside the body text so the dense vector captures document structure.
+    """
     return f"{heading_path}\n\n{body}" if body else heading_path
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
 class HeadingAwareChunker:
+    """Split a page into token-bounded chunks that respect heading boundaries.
+
+    Strategy: first split on h1–h4 headings to produce semantically coherent sections,
+    then recursively sub-split large sections (paragraph → line → sentence → token window)
+    until every chunk fits within ``max_tokens``.
+    """
+
     def __init__(
         self,
         max_tokens: int = MAX_TOKENS,
         overlap_tokens: int = OVERLAP_TOKENS,
         min_chunk_tokens: int = MIN_CHUNK_TOKENS,
     ) -> None:
+        """Configure chunking parameters.
+
+        Args:
+            max_tokens: Hard upper bound on chunk size in ``cl100k_base`` tokens (default 512).
+            overlap_tokens: Token overlap carried from the previous window when splitting
+                a section recursively (default 64).
+            min_chunk_tokens: Chunks below this threshold are discarded (default 50).
+        """
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
         self.min_chunk_tokens = min_chunk_tokens
@@ -199,6 +240,11 @@ class HeadingAwareChunker:
         page_title: str,
         section_prefix: str,
     ) -> list[Chunk]:
+        """Chunk one page's markdown into a list of ``Chunk`` objects.
+
+        Orchestrates: heading split → per-section recursive split → ``Chunk`` assembly
+        → ``total_chunks`` back-fill → min-token filter.
+        """
         sections = _split_by_headings(markdown)
         raw_chunks: list[tuple[str, str]] = []  # (heading_path, text)
 
