@@ -1,20 +1,15 @@
 [
+
   {
-    "question": "What is the ID of the Credit Note Line Item object?",
-    "reference_answer": "The ID of the Credit Note Line Item object is 'cnli_1NPtOx2eZvKYlo2CBH1NpUsU'.",
-    "source_url": "https://docs.stripe.com/api/credit_notes/object",
-    "section_prefix": "api"
+    "question": "What happens to the PaymentIntent if the user fails to authenticate during the Affirm payment test?",
+    "reference_answer": "If the user fails to authenticate, the PaymentIntent transitions from `requires_action` to `requires_payment_method`.",
+    "source_url": "https://docs.stripe.com/payments/affirm/accept-a-payment",
+    "section_prefix": "payments"
   },
   {
-    "question": "What is the data type of the 'allow_promotion_codes' parameter in the payment link update?",
-    "reference_answer": "'allow_promotion_codes' is a boolean.",
-    "source_url": "https://docs.stripe.com/api/payment-link",
-    "section_prefix": "api"
-  },
-  {
-    "question": "What does the 'livemode' attribute indicate about the Account object?",
-    "reference_answer": "The 'livemode' attribute indicates whether the object exists in live mode (true) or in test mode (false).",
-    "source_url": "https://docs.stripe.com/api/v2/core/accounts",
+    "question": "What event occurs whenever a subscription schedule is canceled due to the underlying subscription being canceled because of delinquency?",
+    "reference_answer": "The event is `subscription_schedule.aborted`, which occurs whenever a subscription schedule is canceled due to the underlying subscription being canceled because of delinquency.",
+    "source_url": "https://docs.stripe.com/api/events/",
     "section_prefix": "api"
   },
   {
@@ -24,9 +19,9 @@
     "section_prefix": "api"
   },
   {
-    "question": "What is the currency of the balance transaction object?",
-    "reference_answer": "The currency of the balance transaction object is 'usd'.",
-    "source_url": "https://docs.stripe.com/api/balance_transactions/object",
+    "question": "What is the ID of the Credit Note Line Item object?",
+    "reference_answer": "The ID of the Credit Note Line Item object is 'cnli_1NPtOx2eZvKYlo2CBH1NpUsU'.",
+    "source_url": "https://docs.stripe.com/api/credit_notes/object",
     "section_prefix": "api"
   },
   {
@@ -36,87 +31,9 @@
     "section_prefix": "api"
   },
   {
-    "question": "What event occurs whenever a subscription schedule is canceled due to the underlying subscription being canceled because of delinquency?",
-    "reference_answer": "The event is `subscription_schedule.aborted`, which occurs whenever a subscription schedule is canceled due to the underlying subscription being canceled because of delinquency.",
-    "source_url": "https://docs.stripe.com/api/events/",
-    "section_prefix": "api"
-  },
-  {
-    "question": "What Stripe products allow the addition of New Zealand BECS Direct Debit from the Dashboard?",
-    "reference_answer": "The Stripe products that allow the addition of New Zealand BECS Direct Debit from the Dashboard are Invoicing, Payment Links, and Subscriptions.",
-    "source_url": "https://docs.stripe.com/payments/nz-bank-account",
-    "section_prefix": "payments"
-  },
-  {
-    "question": "What should you select in the Charge customer dialog to manually charge an invoice after the changes?",
-    "reference_answer": "You should select **Cash Balance** instead of **ACH Credit Transfer** in the Charge customer dialog.",
-    "source_url": "https://docs.stripe.com/payments/customer-balance/ach-ct-automigration",
-    "section_prefix": "payments"
-  },
-  {
-    "question": "What does Stripe do as it adds additional funding source support regarding integration updates?",
-    "reference_answer": "Stripe automatically supports new funding sources without requiring updates to your integration, maintaining the same transaction settlement time and guarantees as card and bank account payments.",
-    "source_url": "https://docs.stripe.com/payments/link/add-link-elements-integration",
-    "section_prefix": "payments"
-  },
-  {
-    "question": "What must be specified as 'manual' when creating a PaymentIntent to allow for overcapture?",
-    "reference_answer": "The `capture_method` must be specified as `manual` when creating the PaymentIntent to allow for overcapture.",
-    "source_url": "https://docs.stripe.com/payments/payment-line-items/flexible-payment-scenarios",
-    "section_prefix": "payments"
-  },
-  {
-    "question": "What will happen to users connected to a platform if they do not migrate to Bank Transfers?",
-    "reference_answer": "If users do not migrate to Bank Transfers, they will not be able to request access to Bank Transfers through the Dashboard, and those who have used Bank Transfers with customers will be unable to connect to the Stripe platform.",
-    "source_url": "https://docs.stripe.com/payments/customer-balance/standard-connect-migration",
-    "section_prefix": "payments"
-  },
-  {
-    "question": "What happens to the PaymentIntent if the user fails to authenticate during the Affirm payment test?",
-    "reference_answer": "If the user fails to authenticate, the PaymentIntent transitions from `requires_action` to `requires_payment_method`.",
-    "source_url": "https://docs.stripe.com/payments/affirm/accept-a-payment",
-    "section_prefix": "payments"
-  },
-  {
-    "question": "What type of business model should follow the migration guide for 'Dynamic subscriptions'?",
-    "reference_answer": "The 'Dynamic subscriptions' migration guide is intended for SaaS providers billing users who need support for advanced features.",
-    "source_url": "https://docs.stripe.com/payments/checkout/migration",
-    "section_prefix": "payments"
-  },
-  {
     "question": "What is the purpose of the client secret in the SetupIntent process?",
     "reference_answer": "The client secret included in the SetupIntent is used by the client side to securely complete the payment process.",
     "source_url": "https://docs.stripe.com/billing/subscriptions/amazon-pay",
     "section_prefix": "billing"
-  },
-  {
-    "question": "What are the key considerations when building a subscriptions integration?",
-    "reference_answer": "The key considerations when building a subscriptions integration include how you want to charge customers, how customers will check out and provide their payment information, and when customers will pay for the subscription.",
-    "source_url": "https://docs.stripe.com/billing/subscriptions/design-an-integration",
-    "section_prefix": "billing"
-  },
-  {
-    "question": "What is the metered price for the Hypernian product subscription mentioned in the text?",
-    "reference_answer": "The metered price for the Hypernian product subscription is 0.04 USD per 100 units.",
-    "source_url": "https://docs.stripe.com/billing/subscriptions/usage-based/implementation-guide",
-    "section_prefix": "billing"
-  },
-  {
-    "question": "What is the maximum end date for prebilling if the shortest billing period on the subscription is monthly?",
-    "reference_answer": "The end date for prebilling can’t be more than 12 months from the start of the billing period.",
-    "source_url": "https://docs.stripe.com/billing/subscriptions/prebilling",
-    "section_prefix": "billing"
-  },
-  {
-    "question": "What is the purpose of the `ending_before` parameter when calling the List Events API?",
-    "reference_answer": "The `ending_before` parameter specifies an event ID that was sent just before the webhook endpoint became unavailable, allowing you to retrieve events that occurred prior to that ID.",
-    "source_url": "https://docs.stripe.com/webhooks/process-undelivered-events",
-    "section_prefix": "webhooks"
-  },
-  {
-    "question": "What should you do if you encounter a 'Webhook signature verification failed' error when processing webhook events from Stripe?",
-    "reference_answer": "If you encounter a 'Webhook signature verification failed' error, it indicates that at least one of the three parameters passed to the `constructEvent()` function is incorrect. You should verify the `requestBody`, `signature`, and `endpointSecret` to ensure they are accurate.",
-    "source_url": "https://docs.stripe.com/webhooks/signature",
-    "section_prefix": "webhooks"
   }
 ]
