@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI: run evaluation suite against Qdrant + OpenAI."""
+"""CLI: run evaluation suite against Qdrant + OpenAI (custom LLM-as-judge)."""
 from __future__ import annotations
 
 import asyncio
@@ -28,15 +28,11 @@ async def main() -> None:
         os.environ.setdefault("LANGSMITH_API_KEY", settings.langsmith_api_key)
         os.environ.setdefault("LANGSMITH_PROJECT", settings.langsmith_project)
         os.environ.setdefault("LANGSMITH_TRACING", "true")
-        # RAGAS uses LangChain internally — set legacy vars too
-        os.environ.setdefault("LANGCHAIN_API_KEY", settings.langsmith_api_key)
-        os.environ.setdefault("LANGCHAIN_PROJECT", settings.langsmith_project)
-        os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 
     summary = await run_evaluation(settings)
 
     print("\n" + "=" * 60)
-    print("EVALUATION RESULTS (RAGAS LLM-as-Judge)")
+    print("EVALUATION RESULTS (Custom LLM-as-Judge)")
     print("=" * 60)
     print(f"Total questions      : {summary.total}")
     print(f"faithfulness         : {summary.avg_faithfulness:.2f}")
@@ -45,6 +41,7 @@ async def main() -> None:
     print(f"factual_correctness  : {summary.avg_factual_correctness:.2f}")
     print(f"avg_latency_ms       : {summary.avg_latency_ms:.0f}ms")
     print("=" * 60)
+
 
     targets_met = (
         summary.avg_faithfulness >= 0.80

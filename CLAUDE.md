@@ -278,15 +278,15 @@ Sparse prefetch (40) ─┘
 
 **Evaluation pipeline (COMPLETE):**
 - `eval_set.py`: 25 hand-crafted Q&A pairs across all 4 Stripe doc sections
-- `runner.py`: RAGAS LLM-as-judge metrics (faithfulness, response_relevancy, context_recall, factual_correctness)
+- `runner.py`: Custom LLM-as-judge metrics — 4 direct OpenAI calls with JSON-mode prompts (faithfulness, answer_relevancy, context_recall, factual_correctness); no RAGAS dependency
 - `run_eval.py`: CLI — prints results table + LangSmith project URL
-- LangSmith visibility: per-question `eval_question` traces with RAGAS scores submitted as feedback
-- Trace structure: `run_evaluation` → `eval_question` ×25 → `rag_pipeline` → `hybrid_retrieve` → reranker
+- LangSmith visibility: per-question scores via LangSmith `aevaluate()` Datasets & Experiments UI
+- Each judge: single `chat.completions.create()` call with `response_format={"type":"json_object"}`, returns `{"score": float, "reasoning": str}`, score clamped to [0, 1]
 
 **Key gotchas:**
-- LangSmith SDK reads from `os.environ`, not pydantic Settings — `run_eval.py` calls `os.environ.setdefault()` before `run_evaluation()` to bridge them; also sets `LANGCHAIN_*` vars for RAGAS's LangChain internals
-- RAGAS `evaluate()` calls `asyncio.run()` internally; calling it from inside an async function causes `nest_asyncio` to patch the loop, but the `RagasTracer` callback never fires → `parse_run_traces` crashes with `IndexError`. Fix: run `evaluate()` via `loop.run_in_executor(None, ...)` so it gets a fresh thread event loop
-- `_eval_single` is a closure (defined inside `run_evaluation`) so `generator` is captured without being a `@traceable` parameter (non-serializable objects can't be traceable params)
+- LangSmith SDK reads from `os.environ`, not pydantic Settings — `run_eval.py` calls `os.environ.setdefault()` before `run_evaluation()` to bridge them
+- RAGAS was removed: produced unreliable 0% scores due to opaque multi-step LangChain chains internally failing silently. Replaced with transparent direct OpenAI calls
+- No `LANGCHAIN_*` env vars needed anymore — those were only for RAGAS's LangChain internals
 
 **Remaining:**
 - Docker: `python:3.13-slim`, pre-download BM42 model, non-root `appuser`
@@ -311,5 +311,4 @@ Sparse prefetch (40) ─┘
 - **Qdrant Cloud upsert timeouts**: fixed with tenacity retry (5 attempts, 4–60s backoff) on each batch
 - **ruff ignores**: `B008` (FastAPI Depends pattern), `E741` (legacy `l` variable in pre-existing files)
 - **LangSmith env vars**: pydantic-settings loads `.env` into `Settings` only, not `os.environ`. LangSmith SDK reads `os.environ` directly — bridge with `os.environ.setdefault()` in CLI scripts before any SDK import is used
-- **RAGAS + asyncio**: `evaluate()` calls `asyncio.run()` internally; inside an async context `nest_asyncio` patches it but the `RagasTracer` callback never fires → `IndexError` in `parse_run_traces`. Fix: `await loop.run_in_executor(None, lambda: evaluate(...))` to give it a fresh thread event loop
-- **RAGAS LangChain tracing**: set `LANGCHAIN_API_KEY` + `LANGCHAIN_TRACING_V2` alongside `LANGSMITH_*` vars so RAGAS's LangChain-based metrics are also traced
+- **Custom LLM-as-judge**: RAGAS removed (produced 0% factual correctness on correct answers due to opaque internal failures). Each metric is now a direct OpenAI `chat.completions.create()` call with `response_format={"type":"json_object"}` — transparent and debuggable

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     openai_api_key: str
     openai_embedding_model: str = "text-embedding-3-large"
     llm_model: str = "gpt-4.1"
-    eval_llm_model: str = "gpt-5-mini"
+    eval_llm_model: str = "gpt-4o-mini"
     eval_embedding_model: str = "text-embedding-3-small"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1024
