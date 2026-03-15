@@ -50,9 +50,30 @@ class Settings(BaseSettings):
     retrieval_sparse_top_k: int = 40
     retrieval_final_top_k: int = 25
 
+    # ── Chunking ──────────────────────────────────────────────────────────────
+    chunk_max_tokens: int = 512
+    chunk_overlap_tokens: int = 64
+    chunk_min_tokens: int = 50
+
+    # ── Ingestion ─────────────────────────────────────────────────────────────
+    embedding_batch_size: int = 100
+    indexing_upsert_batch: int = 100
+    qdrant_hnsw_m: int = 16
+    qdrant_hnsw_ef_construct: int = 200
+    qdrant_hnsw_full_scan_threshold: int = 10_000
+
     # ── Reranking ─────────────────────────────────────────────────────────────
     cohere_api_key: str | None = None
     cohere_rerank_top_n: int = 5
+    cohere_rerank_model: str = "rerank-english-v3.0"
+
+    # ── Generation ────────────────────────────────────────────────────────────
+    attribution_max_tokens: int = 20
+
+    # ── Session ───────────────────────────────────────────────────────────────
+    session_max_history: int = 20
+    session_ttl_seconds: int = 7_200
+    session_cleanup_interval_seconds: int = 300
 
     # ── Crawler ───────────────────────────────────────────────────────────────
     crawler_concurrency: int = 10

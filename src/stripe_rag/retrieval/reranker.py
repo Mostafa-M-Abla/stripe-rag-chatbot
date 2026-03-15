@@ -34,15 +34,17 @@ class BaseReranker(ABC):
 class CohereReranker(BaseReranker):
     """Rerank using Cohere Rerank v3 API."""
 
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, model: str = "rerank-english-v3.0") -> None:
         """Initialise the async Cohere client.
 
         Args:
             api_key: Cohere API key (set via ``COHERE_API_KEY`` in ``.env``).
+            model: Cohere rerank model name.
         """
         import cohere  # type: ignore[import-untyped]
 
         self._client = cohere.AsyncClient(api_key=api_key)
+        self._model = model
 
     @traceable(name="cohere_rerank")
     async def rerank(
@@ -53,7 +55,7 @@ class CohereReranker(BaseReranker):
             return []
 
         response = await self._client.rerank(
-            model="rerank-english-v3.0",
+            model=self._model,
             query=query,
             documents=[c.content for c in chunks],
             top_n=top_n,
@@ -88,10 +90,14 @@ class NoOpReranker(BaseReranker):
         return sorted(chunks, key=lambda c: c.score, reverse=True)[:top_n]
 
 
-def get_reranker(cohere_api_key: str | None, cohere_rerank_top_n: int = 5) -> BaseReranker:
+def get_reranker(
+    cohere_api_key: str | None,
+    cohere_rerank_top_n: int = 5,
+    cohere_rerank_model: str = "rerank-english-v3.0",
+) -> BaseReranker:
     """Return CohereReranker if API key is set, otherwise NoOpReranker."""
     if cohere_api_key:
-        logger.info("Using CohereReranker (rerank-english-v3.0)")
-        return CohereReranker(api_key=cohere_api_key)
+        logger.info("Using CohereReranker (%s)", cohere_rerank_model)
+        return CohereReranker(api_key=cohere_api_key, model=cohere_rerank_model)
     logger.info("COHERE_API_KEY not set — using NoOpReranker fallback")
     return NoOpReranker()

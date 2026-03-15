@@ -88,7 +88,9 @@ class AnswerGenerator:
             dense_top_k=settings.retrieval_dense_top_k,
             sparse_top_k=settings.retrieval_sparse_top_k,
         )
-        self._reranker = get_reranker(settings.cohere_api_key, settings.cohere_rerank_top_n)
+        self._reranker = get_reranker(
+            settings.cohere_api_key, settings.cohere_rerank_top_n, settings.cohere_rerank_model
+        )
 
     def _model_kwargs(self) -> dict:
         """Return model-specific kwargs for chat completions.
@@ -172,7 +174,7 @@ class AnswerGenerator:
         attr_response = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
             messages=attribution_messages,
-            max_tokens=20,
+            max_tokens=self._settings.attribution_max_tokens,
             temperature=0,
         )
         used_indices = _parse_source_list(
@@ -225,7 +227,7 @@ class AnswerGenerator:
         attr_response = await self._llm.chat.completions.create(
             model=self._settings.llm_model,
             messages=attribution_messages,
-            max_tokens=20,
+            max_tokens=self._settings.attribution_max_tokens,
             temperature=0,
         )
         used_indices = _parse_source_list(

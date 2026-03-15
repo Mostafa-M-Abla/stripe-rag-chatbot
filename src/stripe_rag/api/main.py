@@ -30,13 +30,13 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
 
     # Session store (no external deps)
-    store = chat_module.SessionStore()
+    store = chat_module.SessionStore(settings)
     chat_module.set_store(store)
 
     # Background cleanup: evict expired sessions every 5 minutes
     async def _cleanup_loop() -> None:
         while True:
-            await asyncio.sleep(300)
+            await asyncio.sleep(settings.session_cleanup_interval_seconds)
             evicted = await store.evict_expired()
             if evicted:
                 logger.info("Session cleanup: evicted %d expired sessions", evicted)

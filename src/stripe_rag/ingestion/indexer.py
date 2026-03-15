@@ -5,8 +5,6 @@ import json
 import logging
 from pathlib import Path
 
-from tenacity import retry, stop_after_attempt, wait_exponential
-
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
@@ -17,6 +15,7 @@ from qdrant_client.models import (
     SparseVectorParams,
     VectorParams,
 )
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from stripe_rag.ingestion.embedder import OpenAIEmbedder, SparseEmbedder
 
@@ -40,6 +39,10 @@ class QdrantIndexer:
         collection_name: str,
         dense_embedder: OpenAIEmbedder,
         sparse_embedder: SparseEmbedder,
+        upsert_batch: int = _UPSERT_BATCH,
+        hnsw_m: int = 16,
+        hnsw_ef_construct: int = 200,
+        hnsw_full_scan_threshold: int = 10_000,
     ) -> None:
         """Initialise the async Qdrant client and attach embedders.
 
@@ -49,11 +52,19 @@ class QdrantIndexer:
             collection_name: Name of the collection to create / upsert into.
             dense_embedder: ``OpenAIEmbedder`` instance for dense vector generation.
             sparse_embedder: ``SparseEmbedder`` instance for BM42 sparse vectors.
+            upsert_batch: Number of points per upsert call (default ``_UPSERT_BATCH``).
+            hnsw_m: HNSW ``m`` parameter controlling graph connectivity.
+            hnsw_ef_construct: HNSW ``ef_construct`` parameter for index build quality.
+            hnsw_full_scan_threshold: Point count below which Qdrant uses brute-force search.
         """
         self._collection_name = collection_name
         self._dense = dense_embedder
         self._sparse = sparse_embedder
         self._client = AsyncQdrantClient(url=url, api_key=api_key, timeout=60)
+        self._upsert_batch = upsert_batch
+        self._hnsw_m = hnsw_m
+        self._hnsw_ef_construct = hnsw_ef_construct
+        self._hnsw_full_scan_threshold = hnsw_full_scan_threshold
 
     async def ensure_collection(self) -> None:
         """Create collection with HNSW + payload indexes if it does not already exist."""
@@ -68,7 +79,11 @@ class QdrantIndexer:
             collection_name=self._collection_name,
             vectors_config={"dense": VectorParams(size=3072, distance=Distance.COSINE)},
             sparse_vectors_config={"sparse": SparseVectorParams()},
-            hnsw_config=HnswConfigDiff(m=16, ef_construct=200, full_scan_threshold=10000),
+            hnsw_config=HnswConfigDiff(
+                m=self._hnsw_m,
+                ef_construct=self._hnsw_ef_construct,
+                full_scan_threshold=self._hnsw_full_scan_threshold,
+            ),
         )
         await self._client.create_payload_index(
             collection_name=self._collection_name,
@@ -118,11 +133,11 @@ class QdrantIndexer:
         sparse_vecs = self._sparse.embed_all(contents)
 
         total = 0
-        n_batches = (len(chunks) + _UPSERT_BATCH - 1) // _UPSERT_BATCH
-        for i in range(0, len(chunks), _UPSERT_BATCH):
-            batch_chunks = chunks[i : i + _UPSERT_BATCH]
-            batch_dense = dense_vecs[i : i + _UPSERT_BATCH]
-            batch_sparse = sparse_vecs[i : i + _UPSERT_BATCH]
+        n_batches = (len(chunks) + self._upsert_batch - 1) // self._upsert_batch
+        for i in range(0, len(chunks), self._upsert_batch):
+            batch_chunks = chunks[i : i + self._upsert_batch]
+            batch_dense = dense_vecs[i : i + self._upsert_batch]
+            batch_sparse = sparse_vecs[i : i + self._upsert_batch]
 
             points = [
                 PointStruct(
@@ -153,7 +168,7 @@ class QdrantIndexer:
             ]
             await self._upsert_with_retry(points)
             total += len(points)
-            batch_num = i // _UPSERT_BATCH + 1
+            batch_num = i // self._upsert_batch + 1
             logger.info(f"Upserted batch {batch_num}/{n_batches}: {total}/{len(chunks)} points")
 
         return total

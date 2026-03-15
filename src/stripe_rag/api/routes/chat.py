@@ -7,7 +7,7 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -34,7 +34,7 @@ class Session:
     """
 
     history: list[dict] = field(default_factory=list)
-    last_accessed: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    last_accessed: datetime = field(default_factory=lambda: datetime.now(UTC))
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
@@ -47,10 +47,11 @@ class SessionStore:
     background task).
     """
 
-    MAX_HISTORY = 20   # messages = 10 turns
-    TTL_SECONDS = 7_200  # 2 hours
-
-    def __init__(self) -> None:
+    def __init__(self, settings=None) -> None:  # type: ignore[no-untyped-def]
+        if settings is None:
+            settings = get_settings()
+        self.MAX_HISTORY: int = settings.session_max_history
+        self.TTL_SECONDS: int = settings.session_ttl_seconds
         self._sessions: dict[str, Session] = {}
         self._lock = asyncio.Lock()  # guards dict mutations only
 
@@ -66,7 +67,7 @@ class SessionStore:
         async with self._lock:
             if session_id and session_id in self._sessions:
                 s = self._sessions[session_id]
-                s.last_accessed = datetime.now(timezone.utc)
+                s.last_accessed = datetime.now(UTC)
                 return session_id, s
             new_id = str(uuid.uuid4())
             s = Session()
@@ -85,7 +86,7 @@ class SessionStore:
             ])
             if len(s.history) > self.MAX_HISTORY:
                 s.history = s.history[-self.MAX_HISTORY:]
-            s.last_accessed = datetime.now(timezone.utc)
+            s.last_accessed = datetime.now(UTC)
 
     async def evict_expired(self) -> int:
         """Remove sessions idle longer than ``TTL_SECONDS``; returns the eviction count.
@@ -93,7 +94,7 @@ class SessionStore:
         Called by the background loop in ``lifespan`` every 5 minutes to prevent
         unbounded memory growth in long-running deployments.
         """
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         async with self._lock:
             expired = [
                 sid for sid, s in self._sessions.items()
@@ -212,7 +213,7 @@ async def chat_stream(
     async with session.lock:
         history_snapshot = list(session.history)
 
-    async def event_stream() -> AsyncGenerator[str, None]:
+    async def event_stream() -> AsyncGenerator[str]:
         """Async generator that drives the SSE loop for one streaming request.
 
         Accumulates streamed tokens, detects guardrail hits (empty sources), appends the

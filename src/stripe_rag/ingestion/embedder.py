@@ -19,16 +19,20 @@ class OpenAIEmbedder:
     with tenacity exponential back-off.
     """
 
-    def __init__(self, api_key: str, model: str = "text-embedding-3-small") -> None:
+    def __init__(
+        self, api_key: str, model: str = "text-embedding-3-small", batch_size: int = BATCH_SIZE
+    ) -> None:
         """Initialise the async OpenAI client.
 
         Args:
             api_key: OpenAI API key.
             model: Embedding model name (defaults to ``text-embedding-3-small``; production
                 uses ``text-embedding-3-large`` as set in ``Settings``).
+            batch_size: Number of texts per API request (default ``BATCH_SIZE``).
         """
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
+        self._batch_size = batch_size
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     async def _embed_batch(self, texts: list[str]) -> list[list[float]]:
@@ -37,9 +41,9 @@ class OpenAIEmbedder:
         return [item.embedding for item in response.data]
 
     async def embed_all(self, texts: list[str]) -> list[list[float]]:
-        """Embed all texts in BATCH_SIZE chunks, logging progress."""
+        """Embed all texts in batch_size chunks, logging progress."""
         all_embeddings: list[list[float]] = []
-        batches = [texts[i : i + BATCH_SIZE] for i in range(0, len(texts), BATCH_SIZE)]
+        batches = [texts[i : i + self._batch_size] for i in range(0, len(texts), self._batch_size)]
         for i, batch in enumerate(batches):
             logger.info(f"Embedding batch {i + 1}/{len(batches)} ({len(batch)} texts)")
             embeddings = await self._embed_batch(batch)
