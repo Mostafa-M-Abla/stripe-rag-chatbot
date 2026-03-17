@@ -18,12 +18,6 @@
     "section_prefix": "api"
   },
   {
-    "question": "What is the type of the created tax ID object in the provided example?",
-    "reference_answer": "The type of the created tax ID object is 'eu_vat'.",
-    "source_url": "https://docs.stripe.com/api/tax_ids/customer_create",
-    "section_prefix": "api"
-  },
-  {
     "question": "What is the currency of the balance transaction object?",
     "reference_answer": "The currency of the balance transaction object is 'usd'.",
     "source_url": "https://docs.stripe.com/api/balance_transactions/object",

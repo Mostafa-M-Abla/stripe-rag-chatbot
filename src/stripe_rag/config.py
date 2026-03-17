@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1024
 
-    # ── Qdrant ────────────────────────────────────────────────────────────────config
+    # ── Qdrant ────────────────────────────────────────────────────────────────
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str | None = None
     qdrant_collection_name: str = "stripe_docs"
@@ -69,6 +69,7 @@ class Settings(BaseSettings):
 
     # ── Generation ────────────────────────────────────────────────────────────
     attribution_max_tokens: int = 20
+    query_rewriting_enabled: bool = False
 
     # ── Session ───────────────────────────────────────────────────────────────
     session_max_history: int = 20

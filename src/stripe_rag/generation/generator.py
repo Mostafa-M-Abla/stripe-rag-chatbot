@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from collections.abc import AsyncGenerator
 
 from langsmith import traceable
@@ -126,6 +127,45 @@ class AnswerGenerator:
         messages.append({"role": "user", "content": f"Context:\n\n{context}\n\nQuestion: {question}"})
         return messages
 
+    @traceable(name="query_rewrite")
+    async def _rewrite_query(self, question: str) -> str:
+        """Rewrite the user question into a retrieval-optimised search query.
+
+        Uses the configured LLM at temperature=0 to produce a single focused query
+        string that expands abbreviations, removes conversational filler, and adds
+        Stripe-specific terminology where appropriate.
+
+        Returns the rewritten query, or the original question if the LLM returns
+        an empty response.
+        """
+        prompt = (
+            "Rewrite the following user question into a concise, specific search query "
+            "optimised for retrieving Stripe documentation. "
+            "Expand abbreviations, remove conversational filler, and use Stripe-specific "
+            "terms where appropriate. "
+            "Output only the rewritten query — no explanation, no punctuation around it.\n\n"
+            f"Question: {question}\n"
+            "Rewritten query:"
+        )
+        t0 = time.perf_counter()
+        response = await self._llm.chat.completions.create(
+            model=self._settings.llm_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=64,
+            temperature=0,
+        )
+        rewrite_ms = (time.perf_counter() - t0) * 1000
+        rewritten = (response.choices[0].message.content or "").strip()
+        logger.info(
+            "Query rewrite %.0f ms: %r → %r",
+            rewrite_ms,
+            question,
+            rewritten if rewritten else "(empty — using original)",
+        )
+        if not rewritten:
+            return question
+        return rewritten
+
     async def generate(
         self, question: str, chunks: list[RetrievedChunk], history: list[dict] | None = None
     ) -> str:
@@ -207,13 +247,18 @@ class AnswerGenerator:
             logger.warning("Guardrail triggered for question: %.80s", question)
             return _GUARDRAIL_REPLY, []
 
+        retrieval_query = (
+            await self._rewrite_query(question)
+            if self._settings.query_rewriting_enabled
+            else question
+        )
         chunks = await self._retriever.retrieve(
-            query=question,
+            query=retrieval_query,
             top_k=self._settings.retrieval_final_top_k,
             section_filter=section_filter,
         )
         reranked = await self._reranker.rerank(
-            query=question,
+            query=retrieval_query,
             chunks=chunks,
             top_n=self._settings.cohere_rerank_top_n,
         )
@@ -250,13 +295,18 @@ class AnswerGenerator:
             yield json.dumps({"type": "done"})
             return
 
+        retrieval_query = (
+            await self._rewrite_query(question)
+            if self._settings.query_rewriting_enabled
+            else question
+        )
         chunks = await self._retriever.retrieve(
-            query=question,
+            query=retrieval_query,
             top_k=self._settings.retrieval_final_top_k,
             section_filter=section_filter,
         )
         reranked = await self._reranker.rerank(
-            query=question,
+            query=retrieval_query,
             chunks=chunks,
             top_n=self._settings.cohere_rerank_top_n,
         )

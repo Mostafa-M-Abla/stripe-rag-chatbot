@@ -26,7 +26,7 @@ class BaseReranker(ABC):
             top_n: Maximum number of chunks to return.
 
         Returns:
-            Reordered list of at most ``top_n`` chunks with updated scores.
+            Reordered list of at most ``top_n`` chunks with updated scores.q45
         """
         ...
 
