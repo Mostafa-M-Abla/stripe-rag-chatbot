@@ -290,11 +290,11 @@ async def run_evaluation(settings: Settings) -> EvalSummary:
     judge_model = settings.eval_llm_model
 
     ls_client = LangSmithClient(api_key=settings.langsmith_api_key)
-    _sync_dataset(ls_client, eval_set, "stripe-rag-eval-test-rewritting")
+    _sync_dataset(ls_client, eval_set, "stripe-rag-eval-3")
 
     experiment_results = await aevaluate(
         _make_target(generator),
-        data="stripe-rag-eval-test-rewritting",
+        data="stripe-rag-eval-3",
         evaluators=[
             _faithfulness_evaluator(oai_client, judge_model),
             _relevancy_evaluator(oai_client, judge_model),

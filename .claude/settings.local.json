@@ -77,7 +77,8 @@
       "Bash(.venv/Scripts/pytest tests/ -v 2>&1 | tail -20)",
       "Bash(.venv/Scripts/ruff check:*)",
       "Bash(.venv/Scripts/pytest tests/ -v --tb=short -q 2>&1 | tail -10)",
-      "Bash(.venv/Scripts/python -c \"from stripe_rag.config import get_settings; s = get_settings\\(\\); print\\(s.chunk_max_tokens, s.embedding_batch_size, s.cohere_rerank_model, s.attribution_max_tokens, s.session_max_history, s.session_ttl_seconds, s.session_cleanup_interval_seconds\\)\" 2>&1)"
+      "Bash(.venv/Scripts/python -c \"from stripe_rag.config import get_settings; s = get_settings\\(\\); print\\(s.chunk_max_tokens, s.embedding_batch_size, s.cohere_rerank_model, s.attribution_max_tokens, s.session_max_history, s.session_ttl_seconds, s.session_cleanup_interval_seconds\\)\" 2>&1)",
+      "Bash(.venv/Scripts/pip install:*)"
     ]
   }
 }

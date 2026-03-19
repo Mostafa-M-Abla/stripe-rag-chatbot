@@ -3,60 +3,60 @@
     "question": "What Stripe products allow the addition of New Zealand BECS Direct Debit from the Dashboard?",
     "reference_answer": "The Stripe products that allow the addition of New Zealand BECS Direct Debit from the Dashboard are Invoicing, Payment Links, and Subscriptions.",
     "source_url": "https://docs.stripe.com/payments/nz-bank-account",
-    "section_prefix": "payments"
+    "section_prefix": ""
   },
   {
     "question": "What happens to the PaymentIntent if the user fails to authenticate during the Affirm payment test?",
     "reference_answer": "If the user fails to authenticate, the PaymentIntent transitions from `requires_action` to `requires_payment_method`.",
     "source_url": "https://docs.stripe.com/payments/affirm/accept-a-payment",
-    "section_prefix": "payments"
+    "section_prefix": ""
   },
   {
     "question": "What event occurs whenever a subscription schedule is canceled due to the underlying subscription being canceled because of delinquency?",
     "reference_answer": "The event is `subscription_schedule.aborted`, which occurs whenever a subscription schedule is canceled due to the underlying subscription being canceled because of delinquency.",
     "source_url": "https://docs.stripe.com/api/events/",
-    "section_prefix": "api"
+    "section_prefix": ""
   },
   {
     "question": "What is the ID of the Credit Note Line Item object?",
     "reference_answer": "The ID of the Credit Note Line Item object is 'cnli_1NPtOx2eZvKYlo2CBH1NpUsU'.",
     "source_url": "https://docs.stripe.com/api/credit_notes/object",
-    "section_prefix": "api"
+    "section_prefix": ""
   },
   {
     "question": "What happens to an invoice's status when it is fully paid?",
     "reference_answer": "When the invoice is fully paid, the invoice’s status becomes 'paid'.",
     "source_url": "https://docs.stripe.com/api/invoices/update",
-    "section_prefix": "api"
+    "section_prefix": ""
   },
   {
     "question": "What is the purpose of the client secret in the SetupIntent process?",
     "reference_answer": "The client secret included in the SetupIntent is used by the client side to securely complete the payment process.",
     "source_url": "https://docs.stripe.com/billing/subscriptions/amazon-pay",
-    "section_prefix": "billing"
+    "section_prefix": ""
   },
   {
     "question": "What should you do if you encounter a 'Webhook signature verification failed' error when processing webhook events from Stripe?",
     "reference_answer": "If you encounter a 'Webhook signature verification failed' error, it indicates that at least one of the three parameters passed to the `constructEvent()` function is incorrect. You should verify the `requestBody`, `signature`, and `endpointSecret` to ensure they are accurate.",
     "source_url": "https://docs.stripe.com/webhooks/signature",
-    "section_prefix": "webhooks"
+    "section_prefix": ""
   },
   {
     "question": "What is the maximum end date for prebilling if the shortest billing period on the subscription is monthly?",
     "reference_answer": "The end date for prebilling can’t be more than 12 months from the start of the billing period.",
     "source_url": "https://docs.stripe.com/billing/subscriptions/prebilling",
-    "section_prefix": "billing"
+    "section_prefix": ""
   },
   {
     "question": "What is the purpose of the `ending_before` parameter when calling the List Events API?",
     "reference_answer": "The `ending_before` parameter specifies an event ID that was sent just before the webhook endpoint became unavailable, allowing you to retrieve events that occurred prior to that ID.",
     "source_url": "https://docs.stripe.com/webhooks/process-undelivered-events",
-    "section_prefix": "webhooks"
+    "section_prefix": ""
   },
   {
     "question": "What should you select in the Charge customer dialog to manually charge an invoice after the changes?",
     "reference_answer": "You should select **Cash Balance** instead of **ACH Credit Transfer** in the Charge customer dialog.",
     "source_url": "https://docs.stripe.com/payments/customer-balance/ach-ct-automigration",
-    "section_prefix": "payments"
+    "section_prefix": ""
   }
 ]

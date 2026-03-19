@@ -13,6 +13,7 @@ from qdrant_client.models import (
     Prefetch,
     SparseVector,
 )
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from stripe_rag.ingestion.embedder import OpenAIEmbedder, SparseEmbedder
 from stripe_rag.retrieval.models import RetrievedChunk
@@ -69,6 +70,7 @@ class HybridRetriever:
         self._dense_top_k = dense_top_k
         self._sparse_top_k = sparse_top_k
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     @traceable(name="hybrid_retrieve")
     async def retrieve(
         self,

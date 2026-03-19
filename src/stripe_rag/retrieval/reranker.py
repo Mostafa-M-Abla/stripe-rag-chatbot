@@ -5,6 +5,7 @@ import logging
 from abc import ABC, abstractmethod
 
 from langsmith import traceable
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from stripe_rag.retrieval.models import RetrievedChunk
 
@@ -46,6 +47,7 @@ class CohereReranker(BaseReranker):
         self._client = cohere.AsyncClient(api_key=api_key)
         self._model = model
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     @traceable(name="cohere_rerank")
     async def rerank(
         self, query: str, chunks: list[RetrievedChunk], top_n: int

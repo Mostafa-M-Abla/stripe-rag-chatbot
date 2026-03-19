@@ -31,6 +31,9 @@ dependencies = [
     "uvicorn[standard]>=0.32",
     # Phase 8 — Observability & Evaluation
     "langsmith>=0.2",
+    # Rate limiting
+    "slowapi>=0.1.9",
+    "limits>=3.6",
 ]
 
 [project.optional-dependencies]

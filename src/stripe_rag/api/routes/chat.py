@@ -9,9 +9,10 @@ from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from stripe_rag.api.limiter import limiter
 from stripe_rag.api.schemas import ChatRequest, ChatResponse, SourceRef
 from stripe_rag.config import get_settings
 from stripe_rag.generation.generator import AnswerGenerator
@@ -150,8 +151,10 @@ def set_store(store: SessionStore) -> None:
 # ---------------------------------------------------------------------------
 
 @router.post("", response_model=ChatResponse)
+@limiter.limit("20/minute")
 async def chat(
-    request: ChatRequest,
+    request: Request,
+    body: ChatRequest,
     generator: AnswerGenerator = Depends(get_generator),
     store: SessionStore = Depends(get_store),
 ) -> ChatResponse:
@@ -162,15 +165,15 @@ async def chat(
     answer, cited sources, latency, model name, and session ID.
     """
     settings = get_settings()
-    session_id, session = await store.get_or_create(request.session_id)
+    session_id, session = await store.get_or_create(body.session_id)
 
     async with session.lock:
         history_snapshot = list(session.history)
 
     start = time.perf_counter()
     answer_text, chunks = await generator.answer(
-        question=request.question,
-        section_filter=request.section_filter,
+        question=body.question,
+        section_filter=body.section_filter,
         history=history_snapshot,
     )
     latency_ms = round((time.perf_counter() - start) * 1000, 2)
@@ -197,8 +200,10 @@ async def chat(
 
 
 @router.post("/stream")
+@limiter.limit("20/minute")
 async def chat_stream(
-    request: ChatRequest,
+    request: Request,
+    body: ChatRequest,
     generator: AnswerGenerator = Depends(get_generator),
     store: SessionStore = Depends(get_store),
 ) -> StreamingResponse:
@@ -208,7 +213,7 @@ async def chat_stream(
     the ``event_stream`` async generator below.  SSE events in order:
     ``token`` (one per LLM delta) → ``sources`` → ``done`` → ``session_id``.
     """
-    session_id, session = await store.get_or_create(request.session_id)
+    session_id, session = await store.get_or_create(body.session_id)
 
     async with session.lock:
         history_snapshot = list(session.history)
@@ -223,8 +228,8 @@ async def chat_stream(
         guardrail_hit = False
 
         async for event_json in generator.answer_stream(
-            question=request.question,
-            section_filter=request.section_filter,
+            question=body.question,
+            section_filter=body.section_filter,
             history=history_snapshot,
         ):
             yield f"data: {event_json}\n\n"

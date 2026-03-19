@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 from langsmith import traceable
 from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from stripe_rag.config import Settings, _is_new_api_model
 from stripe_rag.generation.prompts import (
@@ -93,6 +94,11 @@ class AnswerGenerator:
             settings.cohere_api_key, settings.cohere_rerank_top_n, settings.cohere_rerank_model
         )
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
+    async def _llm_create(self, **kwargs):  # type: ignore[no-untyped-def]
+        """Wrapper around chat.completions.create with tenacity retry (3 attempts, 1–10s backoff)."""
+        return await self._llm.chat.completions.create(**kwargs)
+
     def _model_kwargs(self) -> dict:
         """Return model-specific kwargs for chat completions.
 
@@ -148,7 +154,7 @@ class AnswerGenerator:
             "Rewritten query:"
         )
         t0 = time.perf_counter()
-        response = await self._llm.chat.completions.create(
+        response = await self._llm_create(
             model=self._settings.llm_model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=64,
@@ -170,7 +176,7 @@ class AnswerGenerator:
         self, question: str, chunks: list[RetrievedChunk], history: list[dict] | None = None
     ) -> str:
         """Non-streaming generation for evaluation."""
-        response = await self._llm.chat.completions.create(
+        response = await self._llm_create(
             model=self._settings.llm_model,
             messages=self._build_messages(question, chunks, history),
             **self._model_kwargs(),
@@ -192,7 +198,7 @@ class AnswerGenerator:
         """
         # --- Call 1: stream clean prose ---
         base_messages = self._build_messages(question, chunks, history)
-        stream = await self._llm.chat.completions.create(
+        stream = await self._llm_create(
             model=self._settings.llm_model,
             messages=base_messages,
             **self._model_kwargs(),
@@ -211,7 +217,7 @@ class AnswerGenerator:
             {"role": "assistant", "content": full_text},
             {"role": "user", "content": SOURCES_QUERY_PROMPT.format(n=len(chunks))},
         ]
-        attr_response = await self._llm.chat.completions.create(
+        attr_response = await self._llm_create(
             model=self._settings.llm_model,
             messages=attribution_messages,
             max_tokens=self._settings.attribution_max_tokens,
@@ -269,7 +275,7 @@ class AnswerGenerator:
             {"role": "assistant", "content": answer_text},
             {"role": "user", "content": SOURCES_QUERY_PROMPT.format(n=len(reranked))},
         ]
-        attr_response = await self._llm.chat.completions.create(
+        attr_response = await self._llm_create(
             model=self._settings.llm_model,
             messages=attribution_messages,
             max_tokens=self._settings.attribution_max_tokens,
