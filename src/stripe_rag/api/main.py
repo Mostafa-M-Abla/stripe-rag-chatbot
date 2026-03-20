@@ -63,6 +63,11 @@ async def lifespan(app: FastAPI):
         await cleanup_task
     except asyncio.CancelledError:
         pass
+
+    generator = chat_module.get_generator()
+    if generator:
+        await generator.close()
+
     logger.info("Shutting down")
 
 

@@ -67,6 +67,16 @@ class Settings(BaseSettings):
     cohere_rerank_top_n: int = 5
     cohere_rerank_model: str = "rerank-english-v3.0"
 
+    # ── MMR ───────────────────────────────────────────────────────────────────
+    mmr_enabled: bool = True       # Toggle MMR diversity re-ranking
+    mmr_lambda: float = 0.5         # 0 = max diversity, 1 = max relevance
+    mmr_top_k: int = 10             # Chunks to select via MMR before passing to reranker
+
+    # ── Cache ─────────────────────────────────────────────────────────────────
+    cache_enabled: bool = True
+    redis_url: str = "redis://localhost:6379"
+    cache_ttl_seconds: int = 60 * 60 * 24 * 14  # 2 weeks
+
     # ── Generation ────────────────────────────────────────────────────────────
     attribution_max_tokens: int = 20
     query_rewriting_enabled: bool = False

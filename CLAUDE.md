@@ -148,6 +148,7 @@ stripe-rag-chatbot/
 - Qdrant: `qdrant_url`, `qdrant_api_key`, `qdrant_collection_name="stripe_docs"`
 - Retrieval: `retrieval_dense_top_k=40`, `retrieval_sparse_top_k=40`, `retrieval_final_top_k=25`
 - Reranking: `cohere_api_key=None`, `cohere_rerank_top_n=5`
+- MMR: `mmr_enabled=False`, `mmr_lambda=0.5`, `mmr_top_k=10`
 - Crawler: `crawler_concurrency=10`, `crawler_delay_seconds=0.5`, `crawler_max_pages=2000`
 - LangSmith: `langsmith_api_key`, `langsmith_project="stripe-rag-chatbot"`, `langsmith_tracing=True`
 - Paths: resolved absolute from `__file__` — works regardless of CWD
@@ -222,20 +223,24 @@ stripe-rag-chatbot/
 - `CohereReranker` (rerank-english-v3.0) + `NoOpReranker` fallback — `get_reranker()` factory
 - Both retriever and rerankers decorated with `@traceable`
 - RRF scores are relative rank-based (0.25–0.5 range is normal and expected)
+- `HybridRetriever._apply_mmr()`: static method, pure numpy, ~1 ms; selects `k` diverse chunks via MMR; controlled by `mmr_enabled` / `mmr_lambda` / `mmr_top_k` config fields
 
 **Retrieval chain (chunk counts):**
 ```
 Dense prefetch (40) ─┐
-                      ├─ RRF fusion → top 25 → Cohere Reranker → top 5 → LLM
+                      ├─ RRF fusion (Qdrant) → 25 chunks
 Sparse prefetch (40) ─┘
+                             ↓ [MMR if enabled — selects diverse top-k (~1 ms)]
+                      Cohere / NoOp Reranker → 5 chunks
+                             ↓
+                            LLM
 ```
 - `retrieval_dense_top_k=40`, `retrieval_sparse_top_k=40` → up to 80 unique candidates
 - Qdrant returns top `retrieval_final_top_k=25` after server-side RRF fusion
-- Cohere reranker receives 25, aggressively filters to `cohere_rerank_top_n=5` for LLM
-- **RRF score**: rank-based fusion (`Σ 1/(60+rank)`), values ~0.25–0.50 — *not* cosine similarity.
-  Without Cohere this is the final score the UI displays. With Cohere it is replaced by Cohere's
-  semantic relevance_score (0–1).
-- **No MMR**: diversity is not enforced; top chunks can be semantically similar.
+- **MMR** (`mmr_enabled`, default `False`): if enabled, selects `mmr_top_k=10` diverse chunks from the 25 post-RRF candidates using numpy (`λ=0.5` default); duration logged at DEBUG level. Set `MMR_ENABLED=true` in `.env` to activate. When off: zero overhead.
+- Cohere reranker receives 25 (or `mmr_top_k=10` if MMR enabled), filters to `cohere_rerank_top_n=5` for LLM
+- **RRF score**: rank-based fusion (`Σ 1/(60+rank)`), values ~0.25–0.50 — *not* cosine similarity. Without Cohere this is the final score the UI displays. With Cohere it is replaced by Cohere's semantic relevance_score (0–1).
+- **MMR score**: cosine similarity to query (numpy dot product on normalised vectors) balanced against similarity to already-selected chunks.
 
 **Verified via smoke_test.py:**
 - Query "How do I create a PaymentIntent?" → 5 chunks, all `docs.stripe.com` URLs ✓

@@ -34,6 +34,8 @@ dependencies = [
     # Rate limiting
     "slowapi>=0.1.9",
     "limits>=3.6",
+    # Caching
+    "redis[asyncio]>=5.0",
 ]
 
 [project.optional-dependencies]

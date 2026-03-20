@@ -89,9 +89,20 @@ class AnswerGenerator:
             sparse_embedder=sparse_embedder,
             dense_top_k=settings.retrieval_dense_top_k,
             sparse_top_k=settings.retrieval_sparse_top_k,
+            mmr_enabled=settings.mmr_enabled,
+            mmr_lambda=settings.mmr_lambda,
+            mmr_top_k=settings.mmr_top_k,
         )
         self._reranker = get_reranker(
             settings.cohere_api_key, settings.cohere_rerank_top_n, settings.cohere_rerank_model
+        )
+
+        from stripe_rag.cache import ResponseCache
+
+        self._cache: ResponseCache | None = (
+            ResponseCache(settings.redis_url, settings.cache_ttl_seconds)
+            if settings.cache_enabled
+            else None
         )
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=10))
@@ -241,6 +252,11 @@ class AnswerGenerator:
         yield json.dumps({"type": "sources", "sources": sources})
         yield json.dumps({"type": "done"})
 
+    async def close(self) -> None:
+        """Release async resources (Redis connection)."""
+        if self._cache:
+            await self._cache.close()
+
     @traceable(name="rag_pipeline")
     async def answer(
         self,
@@ -252,6 +268,11 @@ class AnswerGenerator:
         if not check_guardrails(question):
             logger.warning("Guardrail triggered for question: %.80s", question)
             return _GUARDRAIL_REPLY, []
+
+        if self._cache and not history:
+            cached = await self._cache.get(question, section_filter)
+            if cached:
+                return cached
 
         retrieval_query = (
             await self._rewrite_query(question)
@@ -285,6 +306,10 @@ class AnswerGenerator:
             attr_response.choices[0].message.content or "", len(reranked)
         )
         cited_chunks = [reranked[i - 1] for i in used_indices]
+
+        if self._cache and not history:
+            await self._cache.set(question, section_filter, answer_text, cited_chunks)
+
         return answer_text, cited_chunks
 
     async def answer_stream(
@@ -301,6 +326,25 @@ class AnswerGenerator:
             yield json.dumps({"type": "done"})
             return
 
+        if self._cache and not history:
+            cached = await self._cache.get(question, section_filter)
+            if cached:
+                answer_text, cited_chunks = cached
+                yield json.dumps({"type": "token", "text": answer_text})
+                sources = [
+                    {
+                        "url": c.source_url,
+                        "title": c.page_title,
+                        "heading_path": c.heading_path,
+                        "score": round(c.score, 4),
+                        "content": c.content,
+                    }
+                    for c in cited_chunks
+                ]
+                yield json.dumps({"type": "sources", "sources": sources})
+                yield json.dumps({"type": "done"})
+                return
+
         retrieval_query = (
             await self._rewrite_query(question)
             if self._settings.query_rewriting_enabled
@@ -316,5 +360,20 @@ class AnswerGenerator:
             chunks=chunks,
             top_n=self._settings.cohere_rerank_top_n,
         )
+
+        full_text = ""
+        cited_chunks_from_stream: list[RetrievedChunk] = []
         async for event in self.generate_stream(question, reranked, history):
             yield event
+            parsed = json.loads(event)
+            if parsed["type"] == "token":
+                full_text += parsed["text"]
+            elif parsed["type"] == "sources":
+                for src in parsed["sources"]:
+                    for chunk in reranked:
+                        if chunk.source_url == src["url"] and chunk.heading_path == src["heading_path"]:
+                            cited_chunks_from_stream.append(chunk)
+                            break
+
+        if self._cache and not history and full_text:
+            await self._cache.set(question, section_filter, full_text, cited_chunks_from_stream)
