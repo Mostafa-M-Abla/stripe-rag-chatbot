@@ -13,7 +13,9 @@ Production-quality RAG chatbot over Stripe documentation. Crawls 4 Stripe doc se
 | Vector DB | Qdrant Cloud free tier |
 | Sparse retrieval | `fastembed` BM42 (`Qdrant/bm42-all-minilm-l6-v2-attentions`) |
 | Reranking | Cohere Rerank v3 with `NoOpReranker` fallback |
-| LLM | `gpt-4o-mini` (abstracted behind `settings.LLM_MODEL`) |
+| LLM | `gpt-4.1` for answers, `gpt-4o-mini` for eval/judges (abstracted behind `settings.llm_model`) |
+| Cache | Redis-backed response cache (`ResponseCache`, 2-week TTL) |
+| Rate limiting | `slowapi` (`Limiter` by remote address) |
 | Observability | LangSmith `@traceable` decorators |
 | Streaming | FastAPI `StreamingResponse` + SSE |
 | API | FastAPI + uvicorn |
@@ -62,8 +64,17 @@ LANGSMITH_TRACING=true
 QDRANT_URL=...
 QDRANT_API_KEY=...
 
-# Add for Phase 5 Cohere reranking (optional — NoOpReranker used if absent):
+# Optional — NoOpReranker used if absent:
 COHERE_API_KEY=...
+
+# Optional — caching disabled if not set (cache_enabled=true by default, needs Redis running):
+REDIS_URL=redis://localhost:6379
+
+# Optional overrides (defaults shown):
+LLM_MODEL=gpt-4.1
+MMR_ENABLED=true
+CACHE_ENABLED=true
+QUERY_REWRITING_ENABLED=false
 ```
 
 ## Project Structure
@@ -78,7 +89,9 @@ stripe-rag-chatbot/
 │
 ├── src/stripe_rag/
 │   ├── __init__.py                       # __version__ = "0.1.0"
-│   ├── config.py                         # pydantic-settings BaseSettings, get_settings()
+│   ├── config.py                         # pydantic-settings BaseSettings, get_settings(),
+│   │                                     #   AGENTIC_RETRIEVAL_ENABLED, _is_new_api_model()
+│   ├── cache.py                          # ResponseCache: Redis-backed, normalize_question()
 │   │
 │   ├── crawler/
 │   │   ├── models.py                     # RawPage, ExtractedPage dataclasses
@@ -95,17 +108,20 @@ stripe-rag-chatbot/
 │   ├── retrieval/
 │   │   ├── models.py                     # RetrievedChunk dataclass
 │   │   ├── retriever.py                  # HybridRetriever (Qdrant prefetch + RRF)
-│   │   └── reranker.py                   # CohereReranker + NoOpReranker + get_reranker()
+│   │   ├── reranker.py                   # CohereReranker + NoOpReranker + get_reranker()
+│   │   └── agentic_retriever.py          # AgenticRetriever: plan-then-execute parallel queries
 │   │
 │   ├── generation/
 │   │   ├── prompts.py                    # SYSTEM_PROMPT, format_context_blocks(), REFUSAL_PATTERNS
 │   │   └── generator.py                  # AnswerGenerator: generate(), generate_stream(),
 │   │                                     #   answer(), answer_stream(), check_guardrails()
+│   │                                     #   + history, cache, query rewriting, agentic retrieval
 │   │
 │   ├── api/
 │   │   ├── main.py                       # FastAPI app factory, lifespan events
 │   │   ├── schemas.py                    # ChatRequest, ChatResponse, HealthResponse
 │   │   ├── middleware.py                 # RequestID middleware, structured JSON logging
+│   │   ├── limiter.py                    # SlowAPI Limiter singleton (get_remote_address)
 │   │   └── routes/
 │   │       ├── chat.py                   # POST /chat, POST /chat/stream
 │   │       └── health.py                 # GET /health, GET /ready
@@ -144,17 +160,24 @@ stripe-rag-chatbot/
 **Files:** `pyproject.toml`, `src/stripe_rag/__init__.py`, `src/stripe_rag/config.py`
 
 **Key `config.py` fields:**
-- OpenAI: `openai_api_key`, `openai_embedding_model="text-embedding-3-large"`, `llm_model="gpt-4o-mini"`, `llm_temperature=0.1`, `llm_max_tokens=1024`
+- OpenAI: `openai_api_key`, `openai_embedding_model="text-embedding-3-large"`, `llm_model="gpt-4.1"`, `eval_llm_model="gpt-4o-mini"`, `eval_embedding_model="text-embedding-3-small"`, `llm_temperature=0.1`, `llm_max_tokens=1024`
 - Qdrant: `qdrant_url`, `qdrant_api_key`, `qdrant_collection_name="stripe_docs"`
 - Retrieval: `retrieval_dense_top_k=40`, `retrieval_sparse_top_k=40`, `retrieval_final_top_k=25`
-- Reranking: `cohere_api_key=None`, `cohere_rerank_top_n=5`
-- MMR: `mmr_enabled=False`, `mmr_lambda=0.5`, `mmr_top_k=10`
+- Chunking: `chunk_max_tokens=512`, `chunk_overlap_tokens=64`, `chunk_min_tokens=50`
+- Ingestion: `embedding_batch_size=100`, `indexing_upsert_batch=100`, `qdrant_hnsw_m=16`, `qdrant_hnsw_ef_construct=200`, `qdrant_hnsw_full_scan_threshold=10000`
+- Reranking: `cohere_api_key=None`, `cohere_rerank_top_n=5`, `cohere_rerank_model="rerank-english-v3.0"`
+- MMR: `mmr_enabled=True`, `mmr_lambda=0.5`, `mmr_top_k=10`
+- Cache: `cache_enabled=True`, `redis_url="redis://localhost:6379"`, `cache_ttl_seconds=1209600` (2 weeks)
+- Generation: `attribution_max_tokens=20`, `query_rewriting_enabled=False`
+- Session: `session_max_history=20`, `session_ttl_seconds=7200`, `session_cleanup_interval_seconds=300`
 - Crawler: `crawler_concurrency=10`, `crawler_delay_seconds=0.5`, `crawler_max_pages=2000`
 - LangSmith: `langsmith_api_key`, `langsmith_project="stripe-rag-chatbot"`, `langsmith_tracing=True`
 - Paths: resolved absolute from `__file__` — works regardless of CWD
+- **Module-level constants** (not env-readable): `AGENTIC_RETRIEVAL_ENABLED=False`, `AGENTIC_RETRIEVAL_MAX_QUERIES=3`
+- **Helper**: `_is_new_api_model(model_name)` — returns `True` for o-series and gpt-5+ models
 
 **Verified:**
-- `get_settings().llm_model` → `gpt-4o-mini` ✓
+- `get_settings().llm_model` → `gpt-4.1` ✓
 - `ruff check src/` → clean ✓
 - `pytest tests/` → 44 passed ✓
 
@@ -237,7 +260,7 @@ Sparse prefetch (40) ─┘
 ```
 - `retrieval_dense_top_k=40`, `retrieval_sparse_top_k=40` → up to 80 unique candidates
 - Qdrant returns top `retrieval_final_top_k=25` after server-side RRF fusion
-- **MMR** (`mmr_enabled`, default `False`): if enabled, selects `mmr_top_k=10` diverse chunks from the 25 post-RRF candidates using numpy (`λ=0.5` default); duration logged at DEBUG level. Set `MMR_ENABLED=true` in `.env` to activate. When off: zero overhead.
+- **MMR** (`mmr_enabled`, default `True`): if enabled, selects `mmr_top_k=10` diverse chunks from the 25 post-RRF candidates using numpy (`λ=0.5` default); duration logged at DEBUG level. Set `MMR_ENABLED=false` in `.env` to disable. When off: zero overhead.
 - Cohere reranker receives 25 (or `mmr_top_k=10` if MMR enabled), filters to `cohere_rerank_top_n=5` for LLM
 - **RRF score**: rank-based fusion (`Σ 1/(60+rank)`), values ~0.25–0.50 — *not* cosine similarity. Without Cohere this is the final score the UI displays. With Cohere it is replaced by Cohere's semantic relevance_score (0–1).
 - **MMR score**: cosine similarity to query (numpy dot product on normalised vectors) balanced against similarity to already-selected chunks.
@@ -252,14 +275,20 @@ Sparse prefetch (40) ─┘
 
 ### ✅ Phase 6 — Answer Generation with Citations & Streaming (COMPLETE)
 
-**Files:** `src/stripe_rag/generation/prompts.py`, `src/stripe_rag/generation/generator.py`
+**Files:** `src/stripe_rag/generation/prompts.py`, `src/stripe_rag/generation/generator.py`, `src/stripe_rag/retrieval/agentic_retriever.py`, `src/stripe_rag/cache.py`
 
 **Key design:**
 - `SYSTEM_PROMPT`: answer only from context, cite as `[Source N]`, say "insufficient evidence" if weak
 - `format_context_blocks()`: `[Source N] {title} > {heading_path}\nURL: {url}\n{content}\n---`
 - `AnswerGenerator.generate()` (non-streaming) + `generate_stream()` (async generator of SSE JSON)
-- `answer()` + `answer_stream()`: full pipeline with `@traceable(name="rag_pipeline")`
+- `answer()` + `answer_stream()`: full pipeline with `@traceable(name="rag_pipeline")`; both support `history: list[dict]` for multi-turn conversations
 - `check_guardrails()`: regex check for prompt injection patterns
+- **Two-call attribution**: streaming uses a follow-up non-streaming call (capped at `attribution_max_tokens=20`) to identify which `[Source N]` citations were used — keeps streamed prose clean
+- **Query rewriting** (`query_rewriting_enabled=False`): optional `@traceable` `_rewrite_query()` pre-step that expands abbreviations and adds Stripe-specific terms; off by default
+- **Model compatibility** (`_model_kwargs()`): uses `max_completion_tokens` and omits `temperature` for o-series / gpt-5+ models; uses `max_tokens` + `temperature` for all others
+- **Agentic retrieval** (`AGENTIC_RETRIEVAL_ENABLED=False` in `config.py`): when enabled, `AgenticRetriever` replaces the single `HybridRetriever.retrieve()` call. The LLM planner generates 1–3 `{query, section}` pairs (JSON), all executed in parallel via `asyncio.gather`, then merged/deduplicated by `chunk_id` (highest score wins). Toggled via module-level constant only (not env var) to avoid accidental production activation.
+- **Response cache** (`cache_enabled=True`): `ResponseCache` wraps Redis with normalized question keys (`rag:v1:{section}:{normalized_q}`), TTL 2 weeks. Cache is bypassed when `history` is provided (multi-turn conversations are not cached). On Redis errors, fails silently (cache miss).
+- `close()`: releases Redis connection pool (called on lifespan shutdown)
 
 ---
 
@@ -317,3 +346,8 @@ Sparse prefetch (40) ─┘
 - **ruff ignores**: `B008` (FastAPI Depends pattern), `E741` (legacy `l` variable in pre-existing files)
 - **LangSmith env vars**: pydantic-settings loads `.env` into `Settings` only, not `os.environ`. LangSmith SDK reads `os.environ` directly — bridge with `os.environ.setdefault()` in CLI scripts before any SDK import is used
 - **Custom LLM-as-judge**: RAGAS removed (produced 0% factual correctness on correct answers due to opaque internal failures). Each metric is now a direct OpenAI `chat.completions.create()` call with `response_format={"type":"json_object"}` — transparent and debuggable
+- **Eval vs. answer models**: `eval_llm_model="gpt-4o-mini"` and `eval_embedding_model="text-embedding-3-small"` are used by the evaluation runner only; the RAG pipeline uses `llm_model="gpt-4.1"` and `openai_embedding_model="text-embedding-3-large"`
+- **New API model compat**: o-series and gpt-5+ models require `max_completion_tokens` (not `max_tokens`) and don't accept `temperature` — handled by `_is_new_api_model()` + `_model_kwargs()` in `generator.py`
+- **Agentic retrieval toggle**: `AGENTIC_RETRIEVAL_ENABLED` is a module-level constant in `config.py`, intentionally not readable from env vars so it can't be accidentally flipped in production via fly secrets
+- **Cache bypass on history**: `ResponseCache.get/set` are skipped when `history` is provided — multi-turn answers depend on prior context so exact-match caching is unsafe
+- **Rate limiter**: `src/stripe_rag/api/limiter.py` exports a single `limiter` (SlowAPI `Limiter`) instance shared by `main.py` and route handlers
