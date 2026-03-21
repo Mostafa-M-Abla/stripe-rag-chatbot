@@ -35,7 +35,7 @@ class ResponseCache:
                 return None
             data = json.loads(raw)
             chunks = [RetrievedChunk(**c) for c in data["chunks"]]
-            logger.debug("Cache hit: %.80s", question)
+            logger.info("Cache hit: %.80s", question)
             return data["answer"], chunks
         except Exception:
             logger.warning("Cache get failed — treating as miss", exc_info=True)
@@ -54,7 +54,7 @@ class ResponseCache:
                 "chunks": [dataclasses.asdict(c) for c in chunks],
             })
             await self._client.set(self._key(question, section_filter), payload, ex=self._ttl)
-            logger.debug("Cache set: %.80s", question)
+            logger.info("Cache miss (stored): %.80s", question)
         except Exception:
             logger.warning("Cache set failed — continuing without caching", exc_info=True)
 

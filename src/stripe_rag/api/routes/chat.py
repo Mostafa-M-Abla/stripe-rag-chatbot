@@ -179,7 +179,7 @@ async def chat(
     latency_ms = round((time.perf_counter() - start) * 1000, 2)
 
     if chunks:
-        await store.append_turn(session_id, request.question, answer_text)
+        await store.append_turn(session_id, body.question, answer_text)
 
     sources = [
         SourceRef(
@@ -242,7 +242,7 @@ async def chat_stream(
         yield f"data: {json.dumps({'type': 'session_id', 'session_id': session_id})}\n\n"
 
         if not guardrail_hit and accumulated:
-            await store.append_turn(session_id, request.question, accumulated)
+            await store.append_turn(session_id, body.question, accumulated)
 
     return StreamingResponse(
         event_stream(),
