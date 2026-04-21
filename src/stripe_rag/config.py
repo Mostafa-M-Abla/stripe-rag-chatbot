@@ -124,11 +124,17 @@ class Settings(BaseSettings):
         return self.data_dir / "chunks.jsonl"
 
 
+# ── Agentic Retrieval ─────────────────────────────────────────────────────
+# Toggle here in code only — not readable from env vars / fly secrets.
+AGENTIC_RETRIEVAL_ENABLED: bool = False
+AGENTIC_RETRIEVAL_MAX_QUERIES: int = 3  # max queries the planner may emit
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return the singleton Settings instance, parsing `.env` only once per process.
 
     The `@lru_cache` ensures that `.env` is read and validated a single time; subsequent
-    calls return the cached object, making it safe to call from anywhere without overhead.
+    calls return the cached object, making00 it safe to call from anywhere without overhead.
     """
     return Settings()  # type: ignore[call-arg]

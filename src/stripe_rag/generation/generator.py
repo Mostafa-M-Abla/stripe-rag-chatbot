@@ -12,7 +12,7 @@ from langsmith.wrappers import wrap_openai
 from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from stripe_rag.config import Settings, _is_new_api_model
+from stripe_rag.config import AGENTIC_RETRIEVAL_ENABLED, Settings, _is_new_api_model
 from stripe_rag.generation.prompts import (
     REFUSAL_PATTERNS,
     SOURCES_QUERY_PROMPT,
@@ -20,6 +20,7 @@ from stripe_rag.generation.prompts import (
     format_context_blocks,
 )
 from stripe_rag.ingestion.embedder import OpenAIEmbedder, SparseEmbedder
+from stripe_rag.retrieval.agentic_retriever import AgenticRetriever
 from stripe_rag.retrieval.models import RetrievedChunk
 from stripe_rag.retrieval.reranker import get_reranker
 from stripe_rag.retrieval.retriever import HybridRetriever
@@ -95,6 +96,11 @@ class AnswerGenerator:
         )
         self._reranker = get_reranker(
             settings.cohere_api_key, settings.cohere_rerank_top_n, settings.cohere_rerank_model
+        )
+        self._agentic: AgenticRetriever | None = (
+            AgenticRetriever(self._retriever, AsyncOpenAI(api_key=settings.openai_api_key), settings)
+            if AGENTIC_RETRIEVAL_ENABLED
+            else None
         )
 
         from stripe_rag.cache import ResponseCache
@@ -279,11 +285,14 @@ class AnswerGenerator:
             if self._settings.query_rewriting_enabled
             else question
         )
-        chunks = await self._retriever.retrieve(
-            query=retrieval_query,
-            top_k=self._settings.retrieval_final_top_k,
-            section_filter=section_filter,
-        )
+        if self._agentic:
+            chunks = await self._agentic.retrieve(retrieval_query, section_filter)
+        else:
+            chunks = await self._retriever.retrieve(
+                query=retrieval_query,
+                top_k=self._settings.retrieval_final_top_k,
+                section_filter=section_filter,
+            )
         reranked = await self._reranker.rerank(
             query=retrieval_query,
             chunks=chunks,
@@ -350,11 +359,14 @@ class AnswerGenerator:
             if self._settings.query_rewriting_enabled
             else question
         )
-        chunks = await self._retriever.retrieve(
-            query=retrieval_query,
-            top_k=self._settings.retrieval_final_top_k,
-            section_filter=section_filter,
-        )
+        if self._agentic:
+            chunks = await self._agentic.retrieve(retrieval_query, section_filter)
+        else:
+            chunks = await self._retriever.retrieve(
+                query=retrieval_query,
+                top_k=self._settings.retrieval_final_top_k,
+                section_filter=section_filter,
+            )
         reranked = await self._reranker.rerank(
             query=retrieval_query,
             chunks=chunks,
